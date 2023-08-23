@@ -101,7 +101,7 @@ template <
   class ProblemShapeOrThreadblockMma_,
   class CollectiveMainloopOrEpilogue_,
   class CollectiveEpilogueOrThreadblockSwizzle_,
-  class GridSwizzle_ = void,
+  class TileScheduler_ = void,
   class Enable = void
 >
 class GemmUniversal;
@@ -156,11 +156,11 @@ static bool
 can_implement(Arguments const& args);
 
 // Returns a dim3 representing the threadblock shape. 
-static constexpr dim3
+static dim3
 get_block_shape();
 
 // Returns a dim3 representing the grid shape in terms of threadblocks.
-static constexpr dim3
+static dim3
 get_grid_shape(Params const& params);
 ```
 

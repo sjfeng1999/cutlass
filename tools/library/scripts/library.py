@@ -40,6 +40,7 @@ GeneratorTargetNames = {
 
 #
 class DataType(enum.Enum):
+  void = enum_auto()  # primarily used to disable C tensor for epilogues
   b1 = enum_auto()
   u4 = enum_auto()
   u8 = enum_auto()
@@ -89,6 +90,7 @@ ShortDataTypeNames = {
 
 #
 DataTypeNames = {
+  DataType.void: "void",
   DataType.b1: "b1",
   DataType.u4: "u4",
   DataType.u8: "u8",
@@ -121,10 +123,11 @@ DataTypeNames = {
   DataType.cs8: "cs8",
   DataType.cs16: "cs16",
   DataType.cs32: "cs32",
-  DataType.cs64: "cs64", 
+  DataType.cs64: "cs64",
 }
 
 DataTypeTag = {
+  DataType.void: "void",
   DataType.b1: "cutlass::uint1b_t",
   DataType.u4: "cutlass::uint4b_t",
   DataType.u8: "uint8_t",
@@ -161,6 +164,7 @@ DataTypeTag = {
 }
 
 DataTypeSize = {
+  DataType.void: 0,
   DataType.b1: 1,
   DataType.u4: 4,
   DataType.u8: 8,
@@ -259,6 +263,7 @@ class MathOperation(enum.Enum):
   multiply_add = enum_auto()
   multiply_add_saturate = enum_auto()
   xor_popc = enum_auto()
+  and_popc = enum_auto()
   multiply_add_fast_bf16 = enum_auto()
   multiply_add_fast_f16 = enum_auto()
   multiply_add_fast_f32 = enum_auto()
@@ -271,6 +276,7 @@ MathOperationTag = {
   MathOperation.multiply_add: 'cutlass::arch::OpMultiplyAdd', 
   MathOperation.multiply_add_saturate: 'cutlass::arch::OpMultiplyAddSaturate',
   MathOperation.xor_popc: 'cutlass::arch::OpXorPopc',
+  MathOperation.and_popc: 'cutlass::arch::OpAndPopc',
   MathOperation.multiply_add_fast_bf16: 'cutlass::arch::OpMultiplyAddFastBF16',
   MathOperation.multiply_add_fast_f16: 'cutlass::arch::OpMultiplyAddFastF16',
   MathOperation.multiply_add_fast_f32: 'cutlass::arch::OpMultiplyAddFastF32',
@@ -369,6 +375,9 @@ class KernelScheduleType(enum.Enum):
   TmaWarpSpecialized = enum_auto()
   TmaWarpSpecializedPingpong = enum_auto()
   TmaWarpSpecializedCooperative = enum_auto()
+  TmaWarpSpecializedFP8FastAccum = enum_auto()
+  TmaWarpSpecializedCooperativeFP8FastAccum = enum_auto()
+  TmaWarpSpecializedPingpongFP8FastAccum = enum_auto()
 #
 KernelScheduleTag = {
   KernelScheduleType.ScheduleAuto: 'cutlass::gemm::collective::KernelScheduleAuto',
@@ -377,6 +386,9 @@ KernelScheduleTag = {
   KernelScheduleType.TmaWarpSpecialized: 'cutlass::gemm::KernelTmaWarpSpecialized',
   KernelScheduleType.TmaWarpSpecializedPingpong: 'cutlass::gemm::KernelTmaWarpSpecializedPingpong',
   KernelScheduleType.TmaWarpSpecializedCooperative: 'cutlass::gemm::KernelTmaWarpSpecializedCooperative',
+  KernelScheduleType.TmaWarpSpecializedFP8FastAccum: 'cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum',
+  KernelScheduleType.TmaWarpSpecializedCooperativeFP8FastAccum: 'cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8FastAccum',
+  KernelScheduleType.TmaWarpSpecializedPingpongFP8FastAccum: 'cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum',
 }
 
 #
@@ -387,6 +399,9 @@ KernelScheduleSuffixes = {
   KernelScheduleType.TmaWarpSpecialized: '_warpspecialized',
   KernelScheduleType.TmaWarpSpecializedPingpong: '_warpspecialized_pingpong',
   KernelScheduleType.TmaWarpSpecializedCooperative: '_warpspecialized_cooperative',
+  KernelScheduleType.TmaWarpSpecializedFP8FastAccum: '_warpspecialized_fp8_fastaccum',
+  KernelScheduleType.TmaWarpSpecializedCooperativeFP8FastAccum: '_warpspecialized_cooperative_fp8_fastaccum',
+  KernelScheduleType.TmaWarpSpecializedPingpongFP8FastAccum: '_warpspecialized_pingpong_fp8_fastaccum',
 }
 
 class EpilogueScheduleType(enum.Enum):
@@ -411,6 +426,24 @@ EpilogueScheduleSuffixes = {
   EpilogueScheduleType.NoSmemWarpSpecialized: '_epi_nosmem',
   EpilogueScheduleType.TmaWarpSpecialized: '_epi_tma',
   EpilogueScheduleType.TmaWarpSpecializedCooperative: '_epi_tma',
+}
+
+class TileSchedulerType(enum.Enum):
+  Default = enum_auto()
+  Persistent = enum_auto()
+  StreamK = enum_auto()
+#
+TileSchedulerTag = {
+  TileSchedulerType.Default: 'void',
+  TileSchedulerType.Persistent: 'cutlass::gemm::PersistentScheduler',
+  TileSchedulerType.StreamK: 'cutlass::gemm::StreamKScheduler',
+}
+
+#
+TileSchedulerSuffixes = {
+  TileSchedulerType.Default: '',
+  TileSchedulerType.Persistent: '',
+  TileSchedulerType.StreamK: '_stream_k',
 }
 
 ###################################################################################################
@@ -765,6 +798,7 @@ class TileDescription:
 
   def __init__(self, threadblock_shape, stages, warp_count, math_instruction, min_compute, max_compute, cluster_shape = [1,1,1]):
     self.threadblock_shape = threadblock_shape
+    self.tile_shape = threadblock_shape
     self.stages = stages
     self.warp_count = warp_count
     self.math_instruction = math_instruction

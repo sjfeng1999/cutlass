@@ -124,13 +124,12 @@ int CutlassProfiler::operator()() {
     options_.execution_mode == ExecutionMode::kTrace) {
 
     // Profiles all operations
-    profile_();
+    return profile_();
   }
   else if (options_.execution_mode == ExecutionMode::kEnumerate) {
     // Enumerates all operations
     enumerate_();
   }
-
   return 0;
 }
 
@@ -157,7 +156,7 @@ int CutlassProfiler::profile_() {
 
       if (result) {
         return result;
-      } 
+      }
     }
   }
 

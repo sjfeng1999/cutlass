@@ -150,6 +150,10 @@ public:
     /// If true, kernels are verified before they are profiled
     bool enabled;
 
+    /// If true, causes profiler to return an error code if no reference check is run.
+    /// Only valid when verification is enabled.
+    bool required;
+
     /// Relative error threshold - zero to require bit-level consistency
     double epsilon;
 
@@ -195,6 +199,9 @@ public:
 
     /// If true, profiling is actually conducted.
     bool enabled;
+
+    /// If true, profiling returns an error code if no kernels are found to match the filters.
+    bool error_on_no_match = false;
 
     /// List of providers of each functionality to be profiled
     ProviderVector providers;

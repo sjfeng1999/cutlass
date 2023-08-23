@@ -119,6 +119,7 @@ public:
   using ElementOutput = ElementOutput_;
   using ElementAccumulator = ElementAccumulator_;
   using ElementCompute = ElementCompute_;
+  using ElementScalar = ElementCompute;
   using ElementBias = ElementBias_;
   using ElementC = ElementSource_;
   using ElementD = ElementOutput_;
@@ -130,6 +131,7 @@ public:
   using ActivationFunctor = ActivationFunctor_<ElementCompute>;
 
   static constexpr int kCount = 1;
+  static constexpr ScaleType::Kind kScale = Scale;
 
   using FragmentOutput = Array<ElementOutput, kCount>;
   using FragmentAccumulator = Array<ElementAccumulator, kCount>;

@@ -75,6 +75,9 @@ public:
   using ElementD = typename ThreadEpilogueOp::ElementD;
   using StrideD = StrideD_;
 
+  using GmemTiledCopyC = void;
+  using GmemTiledCopyD = void;
+
   static const int kOutputAlignment = ThreadEpilogueOp::kCount;
   using AlignmentType = typename cute::uint_bit<sizeof_bits<ElementOutput>::value * kOutputAlignment>::type;
 
@@ -83,7 +86,7 @@ public:
 
   struct SharedStorage { };
 
-  // Host side epilgoue arguments
+  // Host side epilogue arguments
   struct Arguments {
     typename ThreadEpilogueOp::Params thread{};
     ElementC const* ptr_C = nullptr;
@@ -106,6 +109,14 @@ public:
       Arguments const& args,
       [[maybe_unused]] void* workspace) {
     return args;
+  }
+
+  template<class ProblemShape>
+  CUTLASS_HOST_DEVICE static bool
+  can_implement(
+      [[maybe_unused]] ProblemShape const& problem_shape,
+      [[maybe_unused]] Arguments const& args) {
+    return true;
   }
 
   CUTLASS_HOST_DEVICE
