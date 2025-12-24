@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,34 +30,25 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/arch/mma.hpp>
-
-#include <cute/tensor.hpp>
+#include <cute/tensor_impl.hpp>  // cute::Tensor
+#include <cute/pointer.hpp>      // cute::is_rmem
+#include <cute/arch/mma.hpp>     // cute::UniversalFMA
+#include <cute/arch/util.hpp>    // cute::detail::explode
 
 namespace cute
 {
 
-namespace detail {
-
-template <class X, class = void>
-struct supports_output_scaling { static constexpr bool value = false; };
-
-template <class X>
-struct supports_output_scaling<X, void_t<decltype(declval<X>().accumulate_)>> { static constexpr bool value = true; };
-
-} // end namespace detail
-
 /**
  * concept MMA_Traits
  * {
- *   using ElementDVal =  // Logical A-value type
- *   using ElementAVal =  // Logical B-value type
- *   using ElementBVal =  // Logical C-value type
- *   using ElementCVal =  // Logical D-value type    (NOTE: Not used? Assumed == ElementDVal)
+ *   using ValTypeD =  // Logical D-value type
+ *   using ValTypeA =  // Logical A-value type
+ *   using ValTypeB =  // Logical B-value type
+ *   using ValTypeC =  // Logical C-value type    (NOTE: Not used? Assumed == ValTypeD)
  *
- *   using ElementAFrg =  // A-type consumed by MMA  (if ommitted, same as ElementAVal)
- *   using ElementBFrg =  // B_type consumed by MMA  (if ommitted, same as ElementBVal)
- *   using ElementCFrg =  // C_type consumed by MMA  (if ommitted, same as ElementCVal)
+ *   using FrgTypeA =  // A-type consumed by MMA  (if ommitted, same as ValTypeA)
+ *   using FrgTypeB =  // B_type consumed by MMA  (if ommitted, same as ValTypeB)
+ *   using FrgTypeC =  // C_type consumed by MMA  (if ommitted, same as ValTypeC)
  *
  *   using Shape_MNK =    // Logical MxNxK shape of the MMA
  *
@@ -78,10 +69,10 @@ struct MMA_Traits
 template <class D, class A, class B, class C>
 struct MMA_Traits<UniversalFMA<D,A,B,C>>
 {
-  using ElementDVal = D;
-  using ElementAVal = A;
-  using ElementBVal = B;
-  using ElementCVal = C;
+  using ValTypeD = D;
+  using ValTypeA = A;
+  using ValTypeB = B;
+  using ValTypeC = C;
 
   // Logical shape of the MMA
   using Shape_MNK = Shape<_1,_1,_1>;
@@ -99,17 +90,27 @@ struct MMA_Traits<UniversalFMA<D,A,B,C>>
   using CLayout = Layout<Shape<_1,_1>>;
 };
 
+// Extract an MMA_Op from an MMA_Traits
+template <class MMA_Traits>
+struct MMA_Op {};
+
+template <class MMA_Op_Arg, class... Args>
+struct MMA_Op<MMA_Traits<MMA_Op_Arg, Args...>> {
+  using type = MMA_Op_Arg;
+};
+
 //
 // Generic mma_unpack for any MMA_Traits
 //
-template <class MMA_Op, class... MMA_Args,
+
+template <class AnyMMATraits,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
           class TC, class CLayout>
 CUTE_HOST_DEVICE constexpr
 void
-mma_unpack(MMA_Traits<MMA_Op, MMA_Args...> const& traits,
+mma_unpack(AnyMMATraits        const& traits,
            Tensor<TD, DLayout>      & D,
            Tensor<TA, ALayout> const& A,
            Tensor<TB, BLayout> const& B,
@@ -121,87 +122,47 @@ mma_unpack(MMA_Traits<MMA_Op, MMA_Args...> const& traits,
   static_assert(is_rmem<TC>::value, "Expected registers in MMA_Atom::call");
 
   // Register value types from the MMA_Operation register arrays
+  using MMA_Op   = typename MMA_Op<AnyMMATraits>::type;
   using RegTypeD = typename remove_extent<typename MMA_Op::DRegisters>::type;
   using RegTypeA = typename remove_extent<typename MMA_Op::ARegisters>::type;
   using RegTypeB = typename remove_extent<typename MMA_Op::BRegisters>::type;
   using RegTypeC = typename remove_extent<typename MMA_Op::CRegisters>::type;
-  using MMATraits = MMA_Traits<MMA_Op, MMA_Args...>;
 
-  [[maybe_unused]] constexpr int RegNumD = extent<typename MMA_Op::DRegisters>::value;
+  Tensor rA = recast<RegTypeA>(A);
+  Tensor rB = recast<RegTypeB>(B);
+  Tensor rD = recast<RegTypeD>(D);
+  Tensor rC = recast<RegTypeC>(C);
+
+  constexpr int RegNumD = extent<typename MMA_Op::DRegisters>::value;
   constexpr int RegNumA = extent<typename MMA_Op::ARegisters>::value;
   constexpr int RegNumB = extent<typename MMA_Op::BRegisters>::value;
   constexpr int RegNumC = extent<typename MMA_Op::CRegisters>::value;
 
-  Tensor rA = recast<RegTypeA>(A);
-  Tensor rB = recast<RegTypeB>(B);
-
   CUTE_STATIC_ASSERT_V(size(rA) == Int<RegNumA>{});
   CUTE_STATIC_ASSERT_V(size(rB) == Int<RegNumB>{});
+  CUTE_STATIC_ASSERT_V(size(rD) == Int<RegNumD>{});
+  CUTE_STATIC_ASSERT_V(size(rC) == Int<RegNumC>{});
 
-  if constexpr (is_same<RegTypeD, void>::value)
-  {
-    static_assert(is_same<typename TD::value_type, typename TC::value_type>::value, "GMMA C and D value_type must match.");
-    static_assert(is_same<DLayout, CLayout>::value, "GMMA C and D layouts must match.");
-    // assert((void*)&C == (void*)&D);
-
-    Tensor rC = recast<RegTypeC>(D);  // NOTE: D and C are same, so use mutable D
-
-    //CUTE_STATIC_ASSERT_V(size(rC) == Int<RegNumC>{});
-
-    if constexpr (detail::supports_output_scaling<MMATraits>::value) {
-      detail::explode_with_d_scaling(MMA_Op::fma,
-            rA, make_int_sequence<RegNumA>{},
-            rB, make_int_sequence<RegNumB>{},
-            rC, make_int_sequence<RegNumC>{},
-            traits.accumulate_);
-    }
-    else {
-      detail::explode(MMA_Op::fma,
-                  rA, make_int_sequence<RegNumA>{},
-                  rB, make_int_sequence<RegNumB>{},
-                  rC, make_int_sequence<RegNumC>{});
-    }
-  }
-  else {
-      Tensor rD = recast<RegTypeD>(D);
-      Tensor rC = recast<RegTypeC>(C);
-
-      CUTE_STATIC_ASSERT_V(size(rD) == Int<RegNumD>{});
-      CUTE_STATIC_ASSERT_V(size(rC) == Int<RegNumC>{});
-      if constexpr (detail::supports_output_scaling<MMATraits>::value) {
-        detail::explode_with_d_scaling(MMA_Op::fma,
-                        rD, make_int_sequence<RegNumD>{},
-                        rA, make_int_sequence<RegNumA>{},
-                        rB, make_int_sequence<RegNumB>{},
-                        rC, make_int_sequence<RegNumC>{},
-                        traits.accumulate_);
-      }
-      else {
-        detail::explode(MMA_Op::fma,
+  detail::explode(MMA_Op::fma,
                   rD, make_int_sequence<RegNumD>{},
                   rA, make_int_sequence<RegNumA>{},
                   rB, make_int_sequence<RegNumB>{},
                   rC, make_int_sequence<RegNumC>{});
-      }
-  }
 }
 
-//
 // Accept mutable temporaries
-//
-
-template <class MMA_Op, class... MMA_Args,
+template <class AnyMMATraits,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
           class TC, class CLayout>
 CUTE_HOST_DEVICE constexpr
 void
-mma_unpack(MMA_Traits<MMA_Op, MMA_Args...> const& traits,
-           Tensor<TD, DLayout>      && D,
-           Tensor<TA, ALayout> const&  A,
-           Tensor<TB, BLayout> const&  B,
-           Tensor<TC, CLayout> const&  C)
+mma_unpack(AnyMMATraits        const& traits,
+           Tensor<TD, DLayout>     && D,
+           Tensor<TA, ALayout> const& A,
+           Tensor<TB, BLayout> const& B,
+           Tensor<TC, CLayout> const& C)
 {
   mma_unpack(traits, D, A, B, C);
 }
@@ -209,19 +170,19 @@ mma_unpack(MMA_Traits<MMA_Op, MMA_Args...> const& traits,
 namespace detail {
 
 template <class X, class = void>
-struct FrgTypeA_or_Default { using type = typename X::ElementAVal; };
+struct FrgTypeA_or_Default { using type = typename X::ValTypeA; };
 template <class X>
-struct FrgTypeA_or_Default<X,void_t<typename X::ElementAFrg>> { using type = typename X::ElementAFrg; };
+struct FrgTypeA_or_Default<X,void_t<typename X::FrgTypeA>> { using type = typename X::FrgTypeA; };
 
 template <class X, class = void>
-struct FrgTypeB_or_Default { using type = typename X::ElementBVal; };
+struct FrgTypeB_or_Default { using type = typename X::ValTypeB; };
 template <class X>
-struct FrgTypeB_or_Default<X,void_t<typename X::ElementBFrg>> { using type = typename X::ElementBFrg; };
+struct FrgTypeB_or_Default<X,void_t<typename X::FrgTypeB>> { using type = typename X::FrgTypeB; };
 
 template <class X, class = void>
-struct FrgTypeC_or_Default { using type = typename X::ElementCVal; };
+struct FrgTypeC_or_Default { using type = typename X::ValTypeC; };
 template <class X>
-struct FrgTypeC_or_Default<X,void_t<typename X::ElementCFrg>> { using type = typename X::ElementCFrg; };
+struct FrgTypeC_or_Default<X,void_t<typename X::FrgTypeC>> { using type = typename X::FrgTypeC; };
 
 } // end namespace detail
 

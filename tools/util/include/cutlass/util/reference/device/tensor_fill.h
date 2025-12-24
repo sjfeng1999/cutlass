@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -57,6 +57,7 @@
 #include "cutlass/complex.h"
 #include "cutlass/tensor_view.h"
 #include "cutlass/blas3.h"
+#include "cutlass/numeric_types.h"
 
 #include "cutlass/layout/vector.h"
 
@@ -117,6 +118,7 @@ struct RandomGaussianFunc {
     int int_scale;
     FloatType float_scale_up;
     FloatType float_scale_down;
+    int exclude_zero;           ///< If non-negative, excludes zeros
 
     //
     // Methods
@@ -127,15 +129,16 @@ struct RandomGaussianFunc {
       uint64_t seed_ = 0,
       Element mean_ = 0, 
       Element stddev_ = 1,
-      int int_scale_ = -1
+      int int_scale_ = -1,
+      int exclude_zero_ = -1
     ):
       seed(seed_), 
       mean(static_cast<FloatType>(mean_)), 
       stddev(static_cast<FloatType>(stddev_)), 
-      int_scale(int_scale_) {
+      int_scale(int_scale_),
+      exclude_zero(exclude_zero_) {
 
-      float_scale_up = FloatType(IntType(1) << int_scale);
-      float_scale_up += FloatType(0.5) * float_scale_up;
+      float_scale_up = FloatType(IntType(1) << int_scale); // scale up to clamp low order bits
       float_scale_down = FloatType(1) / FloatType(IntType(1) << int_scale);
     }
   };
@@ -172,10 +175,19 @@ struct RandomGaussianFunc {
 
     Element result;
     if (params.int_scale >= 0) {
-      rnd = FloatType(IntType(rnd * params.float_scale_up));
+      rnd = FloatType(std::llround(rnd * params.float_scale_up));
       result = Element(rnd * params.float_scale_down);
     }
     else {
+      result = Element(rnd);
+    }
+
+    if (params.exclude_zero >=0 && result == Element(0.0)) {
+      if (rnd > FloatType(0)) {
+        rnd += FloatType(1);
+      } else {
+        rnd -= FloatType(1);
+      }
       result = Element(rnd);
     }
 
@@ -204,6 +216,7 @@ struct RandomGaussianFunc<complex<Real>> {
     int int_scale;
     FloatType float_scale_up;
     FloatType float_scale_down;
+    int exclude_zero;           ///< If non-negative, excludes zeros
 
     //
     // Methods
@@ -214,15 +227,16 @@ struct RandomGaussianFunc<complex<Real>> {
       uint64_t seed_ = 0,
       Real mean_ = 0, 
       Real stddev_ = 1,
-      int int_scale_ = -1
+      int int_scale_ = -1,
+      int exclude_zero_ = -1
     ):
       seed(seed_), 
       mean(static_cast<FloatType>(mean_)), 
       stddev(static_cast<FloatType>(stddev_)), 
-      int_scale(int_scale_) {
+      int_scale(int_scale_),
+      exclude_zero(exclude_zero_) {
 
       float_scale_up = FloatType(IntType(1) << int_scale);
-      float_scale_up += FloatType(0.5) * float_scale_up;
       float_scale_down = FloatType(1) / FloatType(IntType(1) << int_scale);
     }
   };
@@ -261,8 +275,8 @@ struct RandomGaussianFunc<complex<Real>> {
 
     Element result;
     if (params.int_scale >= 0) {
-      rnd_r = FloatType(IntType(rnd_r * params.float_scale_up));
-      rnd_i = FloatType(IntType(rnd_i * params.float_scale_down));
+      rnd_r = FloatType(std::llround(rnd_r * params.float_scale_up));
+      rnd_i = FloatType(std::llround(rnd_i * params.float_scale_up));
 
       result = {
         Real(rnd_r * params.float_scale_down),
@@ -270,6 +284,18 @@ struct RandomGaussianFunc<complex<Real>> {
       };
     }
     else {
+      result = Element(Real(rnd_r), Real(rnd_i));
+    }
+
+    if (params.exclude_zero >= 0 && 
+        result.real() == Real(0.0) &&
+        result.imag() == Real(0.0)) {
+
+      if (rnd_r > FloatType(0)) {
+        rnd_r += FloatType(1);
+      } else {
+        rnd_r -= FloatType(1);
+      }
       result = Element(Real(rnd_r), Real(rnd_i));
     }
 
@@ -359,6 +385,7 @@ void TensorFillRandomGaussian(
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that
                                           ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
+  int exclude_zero = -1,                  ///< If non-negative, excludes zeros from tensor init
   cudaStream_t stream = nullptr) {
 
   using RandomFunc = detail::RandomGaussianFunc<Element>;
@@ -367,7 +394,7 @@ void TensorFillRandomGaussian(
 
   TensorForEach<Func, Layout::kRank, Params>(
     view.extent(),
-    Params(view, typename RandomFunc::Params(seed, mean, stddev, bits)),
+    Params(view, typename RandomFunc::Params(seed, mean, stddev, bits, exclude_zero)),
     /*grid_size*/0, /*block_size*/0,
     stream
   );
@@ -400,7 +427,7 @@ void BlockFillRandomGaussian(
 
 namespace detail {
 
-/// Computes a random Gaussian distribution
+/// Computes a random uniform distribution
 template <typename Element>                ///< Element type 
 struct RandomUniformFunc {
 
@@ -425,8 +452,10 @@ struct RandomUniformFunc {
     FloatType range;
     FloatType max;
     int int_scale;
+    double pnan;
     FloatType float_scale_up;
     FloatType float_scale_down;
+    int exclude_zero;           ///< If non-negative, excludes zeros
 
     /// Default ctor
     CUTLASS_HOST_DEVICE
@@ -441,16 +470,25 @@ struct RandomUniformFunc {
       uint64_t seed_ = 0, 
       Element max_ = 1,
       Element min = 0,
-      int int_scale_ = -1
+      int int_scale_ = -1,
+      double pnan_ = 0,
+      int exclude_zero_ = -1
     ):
       seed(seed_), 
-      range(static_cast<FloatType>(max_ - min)), 
+      range(static_cast<FloatType>(max_) - static_cast<FloatType>(min)), 
       max(static_cast<FloatType>(max_)),
-      int_scale(int_scale_) {
-
-      float_scale_up = FloatType(IntType(1) << int_scale);
-      float_scale_up += FloatType(0.5) * float_scale_up;
+      int_scale(int_scale_),
+      pnan(pnan_),
+      exclude_zero(exclude_zero_) {
+      
+      float_scale_up = FloatType(IntType(1) << int_scale); // scale up to clamp low order bits
       float_scale_down = FloatType(1) / FloatType(IntType(1) << int_scale);
+
+      // Handle cases where min = 0 or max = 0 for excluding zeros
+      if (exclude_zero >= 0) {
+        range = (min == Element(0)) ? range - FloatType(1): range;
+        max = (max_ == Element(0)) ? max - FloatType(1): max; 
+      }
     }
   };
 
@@ -481,6 +519,13 @@ struct RandomUniformFunc {
   CUTLASS_DEVICE
   Element operator()() {
 
+    // Draw random float in [0.0, 1.0] to determine if element should be NaN.
+    if constexpr (std::numeric_limits<Element>::has_quiet_NaN) {
+      if (params.pnan > 0 && (curand_uniform(&rng_state) < (params.pnan))) {
+        return Element(NAN);
+      }
+    }
+
     FloatType rnd = random_uniform_float<FloatType>(&rng_state);
     rnd = params.max - params.range * rnd;
 
@@ -489,10 +534,19 @@ struct RandomUniformFunc {
     Element result;
 
     if (params.int_scale >= 0) {
-      rnd = FloatType(IntType(rnd * params.float_scale_up));
+      rnd = FloatType(std::llround(rnd * params.float_scale_up));
       result = Element(rnd * params.float_scale_down);
     }
     else {
+      result = Element(rnd);
+    }
+
+    if (params.exclude_zero >=0 && result == Element(0.0)) {
+      if (rnd > FloatType(0)) {
+        rnd = std::min(params.max, rnd + FloatType(1));
+      } else {
+        rnd = std::max((params.max - params.range), rnd - FloatType(1));
+      }
       result = Element(rnd);
     }
 
@@ -527,8 +581,10 @@ struct RandomUniformFunc<complex<Real>> {
     FloatType range;
     FloatType min;
     int int_scale;
+    double pnan;
     FloatType float_scale_up;
     FloatType float_scale_down;
+    int exclude_zero;           ///< If non-negative, excludes zeros
 
     /// Default ctor
     CUTLASS_HOST_DEVICE
@@ -543,16 +599,25 @@ struct RandomUniformFunc<complex<Real>> {
       uint64_t seed_ = 0, 
       FloatType max = 1,
       FloatType min_ = 0,
-      int int_scale_ = -1
+      int int_scale_ = -1,
+      double pnan_ = 0,
+      int exclude_zero_ = -1
     ):
       seed(seed_), 
       range(static_cast<FloatType>(max - min_)), 
       min(static_cast<FloatType>(min_)), 
-      int_scale(int_scale_) {
+      int_scale(int_scale_),
+      pnan(pnan_),
+      exclude_zero(exclude_zero_) {
 
       float_scale_up = FloatType(IntType(1) << int_scale);
-      float_scale_up += FloatType(0.5) * float_scale_up;
       float_scale_down = FloatType(1) / FloatType(IntType(1) << int_scale);
+
+      // Handle cases where min = 0 or max = 0 for excluding zeros
+      if (exclude_zero >= 0) {
+        min = (min == FloatType(0)) ? min + FloatType(1): min;
+        range = (max == FloatType(0)) ? range - FloatType(1): range; 
+      }
     }
   };
 
@@ -583,6 +648,13 @@ struct RandomUniformFunc<complex<Real>> {
   CUTLASS_DEVICE
   Element operator()() {
 
+    // Draw random float in [0.0, 1.0] to determine if element should be NaN.
+    if constexpr (std::numeric_limits<Element>::has_quiet_NaN) {
+      if (params.pnan > 0 && (curand_uniform(&rng_state) < (params.pnan))) {
+        return Element(Real(NAN), Real(NAN));
+      }
+    }
+
     FloatType rnd_r = random_uniform_float<FloatType>(&rng_state);
     FloatType rnd_i = random_uniform_float<FloatType>(&rng_state);
 
@@ -594,8 +666,8 @@ struct RandomUniformFunc<complex<Real>> {
     Element result;
 
     if (params.int_scale >= 0) {
-      rnd_r = FloatType(IntType(rnd_r * params.float_scale_up));
-      rnd_i = FloatType(IntType(rnd_i * params.float_scale_up));
+      rnd_r = FloatType(std::llround(rnd_r * params.float_scale_up));
+      rnd_i = FloatType(std::llround(rnd_i * params.float_scale_up));
 
       result = {
         Real(rnd_r * params.float_scale_down),
@@ -606,11 +678,23 @@ struct RandomUniformFunc<complex<Real>> {
       result = Element(Real(rnd_r), Real(rnd_i));
     }
 
+    if (params.exclude_zero >= 0 && 
+        result.real() == Real(0.0) &&
+        result.imag() == Real(0.0)) {
+
+      if (rnd_r > FloatType(0)) {
+        rnd_r = std::min(params.min + params.range, rnd_r + FloatType(1));
+      } else {
+        rnd_r = std::max((params.min), rnd_r - FloatType(1));
+      }
+      result = Element(Real(rnd_r), Real(rnd_i));
+    }
+
     return result;
   }
 };
 
-/// Computes a random Gaussian distribution
+/// Computes a random uniform distribution
 template <
   typename Element,               ///< Element type
   typename Layout>                ///< Layout function
@@ -695,13 +779,15 @@ void TensorFillRandomUniform(
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that
                                           ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
+  double pnan = 0,                        ///< Percentage of NaN elements.
+  int exclude_zero = -1,               ///< If non-negative, excludes zeros from tensor init
   cudaStream_t stream = nullptr) {
 
   using RandomFunc = detail::RandomUniformFunc<Element>;
   using Func = detail::TensorFillRandomUniformFunc<Element, Layout>;
   using Params = typename Func::Params;
 
-  typename RandomFunc::Params random(seed, max, min, bits);
+  typename RandomFunc::Params random(seed, max, min, bits, pnan, exclude_zero);
 
   TensorForEach<Func, Layout::kRank, Params>(
     view.extent(),
@@ -724,11 +810,12 @@ void BlockFillRandomUniform(
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that
                                           ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
+  double pnan = 0,                        ///< Percentage of NaN elements.
   cudaStream_t stream = nullptr) {
 
   using RandomFunc = detail::RandomUniformFunc<Element>;
 
-  typename RandomFunc::Params params(seed, max, min, bits);
+  typename RandomFunc::Params params(seed, max, min, bits, pnan);
 
   BlockForEach<Element, RandomFunc>(ptr, capacity, params, /*grid_size*/0, /*block_size*/0, stream);
 }
@@ -774,8 +861,12 @@ struct RandomSparseMetaFunc {
       MetaSizeInBits(MetaSizeInBits_) {
       if (MetaSizeInBits_ == 2) {
         range = 6;
-      } else if (MetaSizeInBits_ == 4) {
+      }
+      else if (MetaSizeInBits_ == 4) {
         range = 2;
+      }
+      else {
+        throw std::invalid_argument("Invalid MetaSizeInBits");
       }
     }
   };
@@ -1161,34 +1252,10 @@ struct TensorClearPartialFunc {
 
   /// Parameters structure
   struct Params {
-
-    //
-    // Data members
-    //
-
-    TensorView view;
-    Element element;
-    FillMode fill_mode;
-    int alignment;
-
-    /// Default ctor
-    CUTLASS_HOST_DEVICE
-    Params(): fill_mode(FillMode::kNone) { }
-
-    //
-    // Methods
-    //
-
-    /// Construction of Gaussian RNG functor.
-    Params(
-      TensorView view_,
-      Element element_,
-      FillMode fill_mode_,
-      int alignment_
-    ):
-      view(view_), element(element_), fill_mode(fill_mode_), alignment(alignment_) {
-
-    }
+    TensorView view{};
+    Element element{};
+    FillMode fill_mode{FillMode::kNone};
+    int alignment{0};
   };
 
   //
@@ -1307,7 +1374,7 @@ void TensorClearPartial(
 
   TensorForEach<Func, Layout::kRank, Params>(
     view.extent(),
-    Params(view, element, fill_mode, alignment),
+    Params{view, element, fill_mode, alignment},
     /*grid_size*/0, /*block_size*/0,
     stream
   );
@@ -1694,7 +1761,11 @@ void TensorFillRandom(
   TensorView<Element, Layout> view,       ///< destination tensor
   uint64_t seed,
   Distribution dist,
-  cudaStream_t stream = nullptr) {
+  cudaStream_t stream = nullptr,
+  int exclude_zero = -1                   ///< If non-negative, excludes 0.
+                                          ///  Note that setting this flag will result in more 1's,
+                                          ///  as we use a simple mechanism to replace 0's by adding/subtracting 1's.
+  ) {
 
   using Real = typename RealType<Element>::Type;
 
@@ -1705,6 +1776,7 @@ void TensorFillRandom(
       static_cast<Real>(dist.gaussian.mean),
       static_cast<Real>(dist.gaussian.stddev),
       dist.int_scale,
+      exclude_zero,
       stream);
   } else if (dist.kind == Distribution::Uniform) {
     TensorFillRandomUniform<Element, Layout>(
@@ -1713,6 +1785,8 @@ void TensorFillRandom(
       static_cast<Real>(dist.uniform.max),
       static_cast<Real>(dist.uniform.min),
       dist.int_scale,
+      dist.uniform.pnan,
+      exclude_zero,
       stream);
   }
 }
@@ -1735,7 +1809,7 @@ void BlockFillSequential(
   Layout layout = Layout::packed(size);
   TensorView<Element, Layout> view(ptr, layout, size);
 
-  Array<Element, Layout::kRank> c;
+  Array<Element, Layout::kRank> c{};
   c[0] = v;
 
   TensorFillLinear(view, c, s);
@@ -1775,6 +1849,7 @@ void BlockFillRandom(
       static_cast<Real>(dist.uniform.max),
       static_cast<Real>(dist.uniform.min),
       dist.int_scale,
+      dist.uniform.pnan,
       stream);
   }
 }

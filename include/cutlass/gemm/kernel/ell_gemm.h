@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,32 +73,30 @@ struct EllGemm {
 
   /// Parameters structure
   struct Params {
-    cutlass::gemm::GemmCoord problem_size;
-    cutlass::gemm::GemmCoord grid_tiled_shape;
-    int swizzle_log_tile;
-    typename Mma::IteratorA::Params params_A;
-    typename Mma::IteratorA::TensorRef ref_A;
-    typename Mma::IteratorB::Params params_B;
-    typename Mma::IteratorB::TensorRef ref_B;
-    typename Epilogue::OutputTileIterator::Params params_C;
-    typename Epilogue::OutputTileIterator::TensorRef ref_C;
-    typename Epilogue::OutputTileIterator::Params params_D;
-    typename Epilogue::OutputTileIterator::TensorRef ref_D;
-    typename OutputOp::Params output_op;
-    int *semaphore;
-    int gemm_k_iterations;
-    int gemm_k_size;
-    const int* ell_idx;
-    int ell_ncol;
-    int ell_blocksize;
-    int ell_base_idx;
+    cutlass::gemm::GemmCoord problem_size{};
+    cutlass::gemm::GemmCoord grid_tiled_shape{};
+    int swizzle_log_tile{0};
+    typename Mma::IteratorA::Params params_A{};
+    typename Mma::IteratorA::TensorRef ref_A{};
+    typename Mma::IteratorB::Params params_B{};
+    typename Mma::IteratorB::TensorRef ref_B{};
+    typename Epilogue::OutputTileIterator::Params params_C{};
+    typename Epilogue::OutputTileIterator::TensorRef ref_C{};
+    typename Epilogue::OutputTileIterator::Params params_D{};
+    typename Epilogue::OutputTileIterator::TensorRef ref_D{};
+    typename OutputOp::Params output_op{};
+    int *semaphore = nullptr;
+    int gemm_k_iterations{0};
+    int gemm_k_size{0};
+    const int* ell_idx = nullptr;
+    int ell_ncol{0};
+    int ell_blocksize{0};
+    int ell_base_idx{0};
 
     //
     // Methods
     //
-
-    CUTLASS_HOST_DEVICE
-    Params(): swizzle_log_tile(0), semaphore(0), gemm_k_iterations(0), gemm_k_size(0) { }
+   Params() = default;
 
     CUTLASS_HOST_DEVICE
     Params(
@@ -154,9 +152,7 @@ struct EllGemm {
   //
   // Methods
   //
-
-  CUTLASS_HOST_DEVICE
-  EllGemm() { }
+  EllGemm() = default;
 
   /// Determines whether kernel satisfies alignment
     static Status can_implement(
@@ -458,32 +454,30 @@ struct EllGemm<Mma_, Epilogue_, ThreadblockSwizzle_, SplitKSerial, false> {
 
   /// Parameters structure
   struct Params {
-    cutlass::gemm::GemmCoord problem_size;
-    cutlass::gemm::GemmCoord grid_tiled_shape;
-    int swizzle_log_tile;
-    typename Mma::IteratorA::Params params_A;
-    typename Mma::IteratorA::TensorRef ref_A;
-    typename Mma::IteratorB::Params params_B;
-    typename Mma::IteratorB::TensorRef ref_B;
-    typename Epilogue::OutputTileIterator::Params params_C;
-    typename Epilogue::OutputTileIterator::TensorRef ref_C;
-    typename Epilogue::OutputTileIterator::Params params_D;
-    typename Epilogue::OutputTileIterator::TensorRef ref_D;
-    typename OutputOp::Params output_op;
-    int *semaphore;
-    int gemm_k_iterations;
-    int gemm_k_size;
-    const int* ell_idx;
-    int ell_ncol;
-    int ell_blocksize;
-    int ell_base_idx;
+    cutlass::gemm::GemmCoord problem_size{};
+    cutlass::gemm::GemmCoord grid_tiled_shape{};
+    int swizzle_log_tile{0};
+    typename Mma::IteratorA::Params params_A{};
+    typename Mma::IteratorA::TensorRef ref_A{};
+    typename Mma::IteratorB::Params params_B{};
+    typename Mma::IteratorB::TensorRef ref_B{};
+    typename Epilogue::OutputTileIterator::Params params_C{};
+    typename Epilogue::OutputTileIterator::TensorRef ref_C{};
+    typename Epilogue::OutputTileIterator::Params params_D{};
+    typename Epilogue::OutputTileIterator::TensorRef ref_D{};
+    typename OutputOp::Params output_op{};
+    int *semaphore = nullptr;
+    int gemm_k_iterations{0};
+    int gemm_k_size{0};
+    const int* ell_idx = nullptr;
+    int ell_ncol{0};
+    int ell_blocksize{0};
+    int ell_base_idx{0};
 
     //
     // Methods
     //
-
-    CUTLASS_HOST_DEVICE
-    Params(): swizzle_log_tile(0), semaphore(0), gemm_k_iterations(0), gemm_k_size(0) { }
+    Params() = default;
 
     CUTLASS_HOST_DEVICE
     Params(
@@ -697,7 +691,7 @@ struct EllGemm<Mma_, Epilogue_, ThreadblockSwizzle_, SplitKSerial, false> {
         static int const kAlignmentA = Mma::IteratorA::AccessType::kElements;
         static int const kAlignmentB = Mma::IteratorB::AccessType::kElements;
         static int const kAlignmentC = Epilogue::OutputTileIterator::kElementsPerAccess;
-        constexpr bool is_double = (sizeof(Mma::IteratorA::Element) == 8);
+        constexpr bool is_double = (sizeof(typename Mma::IteratorA::Element) == 8);
         constexpr bool is_multiple_alignment =
           (kAlignmentA > 1) && (kAlignmentB > 1) && (kAlignmentC > 1);
         const bool is_specialized_blocksize =
@@ -705,11 +699,11 @@ struct EllGemm<Mma_, Epilogue_, ThreadblockSwizzle_, SplitKSerial, false> {
           && params.ell_blocksize >= Mma::Shape::kK;
         // Compute threadblock-scoped matrix multiply-add
         if ((is_double || is_multiple_alignment) && is_specialized_blocksize) {
-          mma.operator()<false, true>(
+          mma.template operator()<false, true>(
               gemm_k_iterations, accumulators, iterator_A, iterator_B, accumulators, ell_iterator);
         }
         else {
-          mma.operator()<false, false>(
+          mma.template operator()<false, false>(
               gemm_k_iterations, accumulators, iterator_A, iterator_B, accumulators, ell_iterator);
         }
       }

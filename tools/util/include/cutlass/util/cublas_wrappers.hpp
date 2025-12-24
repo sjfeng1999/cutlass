@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,7 +51,9 @@
 // User could potentially define ComplexFloat/ComplexDouble instead of std::
 #ifndef BLAM_COMPLEX_TYPES
 #define BLAM_COMPLEX_TYPES 1
-#include <cuda/std/complex>
+#include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(complex)
+
 namespace blam {
 template <typename T>
 using Complex       = cuda::std::complex<T>;
@@ -63,7 +65,7 @@ using ComplexDouble = cuda::std::complex<double>;
 // User could potentially define Half instead of cute::
 #ifndef BLAM_HALF_TYPE
 #define BLAM_HALF_TYPE 1
-#include <cute/numeric/half.hpp>
+#include <cute/numeric/numeric_types.hpp>
 namespace blam {
 using Half = cute::half_t;
 }

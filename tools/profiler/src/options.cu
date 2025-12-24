@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,15 +31,18 @@
 /* \file
    \brief Command line options for performance test program
 */
-
+#include <cuda.h>
+#include <cuda_runtime_api.h>
 #include <algorithm>
+#include <fstream>
+#include <set>
 
 #include "cutlass/cutlass.h"
 #include "cutlass/version.h"
 
 #include "cutlass/library/util.h"
 
-#include "options.h"
+#include "cutlass/profiler/options.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -55,45 +58,106 @@ static char const *end_of_line = "\n                                            
 
 Options::Device::Device(cutlass::CommandLine const &cmdline) {
 
-  cmdline.get_cmd_line_argument("device", device, 0);
-
+  // Gets the number of devices for future validation
   cudaError_t result;
-  result = cudaGetDeviceProperties(&properties, device);
-
+  result = cudaGetDeviceCount(&num_devices);
   if (result != cudaSuccess) {
-    throw std::runtime_error("cudaGetDeviceProperties() failed for given device");
+    throw std::runtime_error("cudaGetNumDevices() failed");
   }
 
-  result = cudaSetDevice(device);
-  if (result != cudaSuccess) {
-    throw std::runtime_error("cudaSetDevice() failed for given device.");
-  }
-
-  // Permit overriding the compute capability
-  if (cmdline.check_cmd_line_flag("compute-capability")) {
-    int cc = compute_capability();
-    cmdline.get_cmd_line_argument("compute-capability", cc, cc);
-    properties.major = cc / 10;
-    properties.minor = cc % 10;
-  }
-  
-  // Permit overriding the L2 cache capacity
-  if (cmdline.check_cmd_line_flag("llc-capacity")) {
-    int llc_capacity = 0;
-    cmdline.get_cmd_line_argument("llc-capacity", llc_capacity, 0);
-
-    if (llc_capacity >= 0) {
-      properties.l2CacheSize = (llc_capacity << 10);
+  // Gets the devices specified by the user
+  // This preserves the user specified order and checks for duplicates
+  {
+    std::vector<int> temp_device_list;
+    cmdline.get_cmd_line_arguments("devices", temp_device_list);
+    if (temp_device_list.empty()) {
+      temp_device_list.push_back(0);
+    }
+    {
+      std::set<int> temp_device_set;
+      for (int device : temp_device_list) {
+        auto res = temp_device_set.insert(device);
+        if (!res.second) {
+          throw std::runtime_error("Duplicate device specified: " +
+                                   std::to_string(device));
+        } else if (device > num_devices) {
+          throw std::runtime_error("Bad device ID: " +
+                                   std::to_string(device));
+        } else {
+          devices.push_back(device);
+        }
+      }
     }
   }
 
+  properties.resize(devices.size());
+  // Retrieves properties for all specified devices
+  for (size_t device_index = 0; device_index < devices.size(); device_index++) {
+    int device = devices[device_index];
+
+    result = cudaGetDeviceProperties(&properties[device_index], device);
+
+    if (result != cudaSuccess) {
+      throw std::runtime_error("cudaGetDeviceProperties() failed for given device");
+    }
+
+    // Check that all devices are the same
+    if (device_index > 0) {
+      if ((properties[device_index].major != properties[0].major) ||
+          (properties[device_index].minor != properties[0].minor)) {
+        throw std::runtime_error("All selected devices must have the same "
+                                 "compute capability");
+      }
+      if (properties[device_index].l2CacheSize != properties[0].l2CacheSize) {
+        throw std::runtime_error("All selected devices must have the same "
+                                 "L2 cache size");
+      }
+      if (properties[device_index].multiProcessorCount != properties[0].multiProcessorCount) {
+        throw std::runtime_error("All selected devices must have the same "
+                                 "SM count");
+      }
+    }
+
+    result = cudaSetDevice(device);
+    if (result != cudaSuccess) {
+      throw std::runtime_error("cudaSetDevice() failed for given device.");
+    }
+
+    // Permit overriding the compute capability
+    if (cmdline.check_cmd_line_flag("compute-capability")) {
+      int cc = compute_capability(device_index);
+      cmdline.get_cmd_line_argument("compute-capability", cc, cc);
+      properties[device_index].major = cc / 10;
+      properties[device_index].minor = cc % 10;
+    }
+
+    // Permit overriding the L2 cache capacity
+    if (cmdline.check_cmd_line_flag("llc-capacity")) {
+      int llc_capacity = 0;
+      cmdline.get_cmd_line_argument("llc-capacity", llc_capacity, 0);
+
+      if (llc_capacity >= 0) {
+        properties[device_index].l2CacheSize = (llc_capacity << 10);
+      }
+    }
+
+    // Permit overriding the sm_count
+    cmdline.get_cmd_line_argument("sm-count", sm_count, 0);
+  }
+}
+
+int Options::Device::get_sm_count(int device_index) const {
+  if (sm_count <= 0) {
+    return properties[device_index].multiProcessorCount;
+  }
+  return sm_count;
 }
 
 void Options::Device::print_usage(std::ostream &out) const {
 
   out << "Device:\n"
-    << "  --device=<int>                               "
-    << "    CUDA Device ID\n\n";
+    << "  --devices=<int>,<int>,...                      "
+    << "    CUDA Device IDs\n\n";
 
   int device_count = 0;
   cudaError_t result = cudaGetDeviceCount(&device_count);
@@ -111,11 +175,13 @@ void Options::Device::print_usage(std::ostream &out) const {
         break;
       }
       else {
-        out << "    [" << idx << "] - " 
-          << prop.name << " - SM " << prop.major << "." << prop.minor << ", " 
-          << prop.multiProcessorCount << " SMs @ " << (prop.clockRate / 1000.0) << " MHz, " 
+        int32_t clock_KHz;
+        cudaDeviceGetAttribute(&clock_KHz, cudaDevAttrClockRate, 0);
+        out << "    [" << idx << "] - "
+          << prop.name << " - SM " << prop.major << "." << prop.minor << ", "
+          << prop.multiProcessorCount << " SMs @ " << (clock_KHz / 1000.0) << " MHz, "
           << "L2 cache: " << (prop.l2CacheSize >> 20) << " MB, Global Memory: " << (prop.totalGlobalMem >> 30) << " GB"
-          << std::endl; 
+          << std::endl;
       }
     }
     out << "\n";
@@ -128,24 +194,22 @@ void Options::Device::print_usage(std::ostream &out) const {
     << "  --llc-capacity=<capacity in KiB>             "
     << "    Capacity of last-level cache in kilobytes. If this is non-zero," << end_of_line
     << "      profiling phases cycle through different input tensors to induce" << end_of_line
-    << "      capacity misses in the L2.\n\n";
+    << "      capacity misses in the L2.\n\n"
+
+     << "  --sm-count=<int>                             "
+     << "    Override the number of SMs. This is used to limit the number of " << end_of_line
+     << "      during profiling. If this is set, profiling attempts to limit the sm_count " << end_of_line
+     << "      to user-set value. This is not possible on all architectures and all kernel types. \n\n";
 
 }
 
 void Options::Device::print_device_info(std::ostream &out) const {
-  int num_devices;
   cudaDeviceProp props;
-
   cudaError_t result;
-  result = cudaGetDeviceCount(&num_devices);
-
-  if (result != cudaSuccess) {
-    throw std::runtime_error("cudaGetNumDevices() failed");
-  }
 
   out << "Device Name,SM,CUDA Device ID,Phy Device ID" << std::endl;
 
-  for(int device = 0; device < num_devices; device++) {
+  for (int device = 0; device < num_devices; device++) {
     result = cudaSetDevice(device);
     if (result != cudaSuccess) {
       throw std::runtime_error("cudaSetDevice() failed for device");
@@ -165,14 +229,30 @@ void Options::Device::print_device_info(std::ostream &out) const {
 void Options::Device::print_options(std::ostream &out, int indent) const {
 
   out
-    << indent_str(indent) << "device: " << device << "\n"
-    << indent_str(indent) << "clock: " << int(double(properties.clockRate) / 1000.0) << "\n"
-    << indent_str(indent) << "compute-capability: " << compute_capability() << "\n";
+    << indent_str(indent) << "devices: ";
+  for (int device : devices) {
+    out << device << ',';
+  }
+  int32_t clock_KHz;
+  cudaDeviceGetAttribute(&clock_KHz, cudaDevAttrClockRate, 0);
+  out
+    << "\n"
+    << indent_str(indent) << "clock: " << int(double(clock_KHz) / 1000.0) << "\n"
+    << indent_str(indent) << "compute-capability: " << compute_capability(0) << "\n";
+}
+
+/// Returns the device ID from a device index
+int Options::Device::device_id(size_t device_index) const {
+  if (device_index > devices.size()) {
+    throw std::runtime_error("Out of bounds device index: " +
+                             std::to_string(device_index));
+  }
+  return devices.at(device_index);
 }
 
 /// Returns the compute capability of the listed device (e.g. 61, 60, 70, 75)
-int Options::Device::compute_capability() const {
-  return properties.major * 10 + properties.minor;
+int Options::Device::compute_capability(int device_index) const {
+  return properties[device_index].major * 10 + properties[device_index].minor;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -207,10 +287,10 @@ Options::Initialization::Initialization(cutlass::CommandLine const &cmdline) {
   else {
     // profiler chosen data distribution (allowed to change based on numeric types)
     fix_data_distribution = false;
-    // set uniform data distribution with range [-4, 4] 
+    // set uniform data distribution with range [-4, 4]
     data_distribution.set_uniform(-4, 4, 0);
   }
-  
+
 
 }
 
@@ -247,12 +327,6 @@ void Options::Initialization::get_distribution(
     {0, 0}
   };
 
-  // Initalize pnz values to a default value of 100%
-  dist.gaussian.pnz = 100.0;
-  dist.gaussian.pnzA = 100.0;
-  dist.gaussian.pnzB = 100.0;
-  dist.gaussian.pnzC = 100.0;
-
   using KeyValueVector = std::vector<std::pair<std::string, std::string> >;
 
   KeyValueVector values;
@@ -268,6 +342,25 @@ void Options::Initialization::get_distribution(
       }
     }
     ++it;
+  }
+
+  // Default initialization
+  switch (dist.kind) {
+    case cutlass::Distribution::Uniform:
+      dist.set_uniform(-4/*min*/, 4/*max*/);
+      break;
+    case cutlass::Distribution::Gaussian:
+      dist.set_gaussian(0/*mean*/, 4/*stddev*/);
+      break;
+    case cutlass::Distribution::Identity:
+      dist.set_identity();
+      break;
+    case cutlass::Distribution::Sequential:
+      dist.set_sequential(0/*start*/, 4/*delta*/);
+      break;
+    default:
+      dist.set_uniform(-4/*min*/, 4/*max*/);
+      return;
   }
 
   // Subsequent key-value pairs update the named field of the distribution struct.
@@ -335,7 +428,7 @@ Options::Library::Library(cutlass::CommandLine const &cmdline) {
     std::string mode = "default";
     cmdline.get_cmd_line_argument("library-algo-mode", mode);
     algorithm_mode = from_string<AlgorithmMode>(mode);
-  }  
+  }
 
   if (cmdline.check_cmd_line_flag("library-algos")) {
 
@@ -353,7 +446,7 @@ Options::Library::Library(cutlass::CommandLine const &cmdline) {
       }
       else {
         int algo;
-        std::stringstream ss; 
+        std::stringstream ss;
 
         ss << token;
         ss >> algo;
@@ -396,12 +489,17 @@ void Options::Library::print_options(std::ostream &out, int indent) const {
 
 Options::Profiling::Profiling(cutlass::CommandLine const &cmdline) {
 
-  cmdline.get_cmd_line_argument("workspace-count", workspace_count, 0);  
+  cmdline.get_cmd_line_argument("workspace-count", workspace_count, 0);
   cmdline.get_cmd_line_argument("warmup-iterations", warmup_iterations, 10);
   cmdline.get_cmd_line_argument("profiling-iterations", iterations, 100);
   cmdline.get_cmd_line_argument("sleep-duration", sleep_duration, 50);
   cmdline.get_cmd_line_argument("profiling-enabled", enabled, true);
-  
+  cmdline.get_cmd_line_argument("profiling-duration", duration, 10);
+  cmdline.get_cmd_line_argument("min-iterations", min_iterations, 10);
+  cmdline.get_cmd_line_argument("use-cuda-graphs", use_cuda_graphs, false);
+  cmdline.get_cmd_line_argument("enable-kernel-performance-search", enable_kernel_performance_search, false);
+  cmdline.get_cmd_line_argument("enable-best-kernel-for-fixed-shape", enable_best_kernel_for_fixed_shape, false);
+
   if (cmdline.check_cmd_line_flag("providers")) {
 
     std::vector<std::string> tokens;
@@ -416,7 +514,7 @@ Options::Profiling::Profiling(cutlass::CommandLine const &cmdline) {
   else {
     providers.push_back(library::Provider::kCUTLASS);
     providers.push_back(library::Provider::kCUBLAS);
-    providers.push_back(library::Provider::kCUDNN);      
+    providers.push_back(library::Provider::kCUDNN);
   }
 }
 
@@ -431,7 +529,17 @@ void Options::Profiling::print_usage(std::ostream &out) const {
 
     << "  --profiling-iterations=<iterations>          "
     << "    Number of iterations to profile each kernel. If zero, kernels" << end_of_line
-    << "      are launched up to the profiling duration.\n\n"
+    << "      are launched up to the profiling duration. If non-zero, this overrides" << end_of_line
+    << "      --profiling-duration and --min-iterations.\n\n"
+
+    << "  --profiling-duration=<duration>             "
+    << "    Time to spend profiling each kernel (ms)." << end_of_line
+    << "    Overriden by `profiling-iterations` when `profiling-iterations` > 0." << end_of_line
+    << "    Note that `min-iterations` must also be satisfied.\n\n"
+
+    << "  --min-iterations=<iterations>             "
+    << "    Minimum number of iterations to spend profiling each kernel, even if" << end_of_line
+    << "    `profiling-duration` has been met.\n\n"
 
     << "  --warmup-iterations=<iterations>             "
     << "    Number of iterations to execute each kernel prior to profiling.\n\n"
@@ -441,6 +549,9 @@ void Options::Profiling::print_usage(std::ostream &out) const {
 
     << "  --profiling-enabled=<bool>                   "
     << "    If true, profiling is actually conducted.\n\n"
+
+    << "  --enable-best-kernel-for-fixed-shape=<bool>   "
+    << "    If true, iterate through common cluster sizes, raster orders, and swizzle sizes for each kernel.\n\n"
 
   ;
 }
@@ -480,10 +591,13 @@ size_t Options::Profiling::index(library::Provider provider) const {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 Options::Verification::Verification(cutlass::CommandLine const &cmdline) {
-  
+
   cmdline.get_cmd_line_argument("verification-enabled", enabled, true);
   if (enabled) {
     cmdline.get_cmd_line_argument("verification-required", required, false);
+  }
+  else {
+    required = false;
   }
 
   cmdline.get_cmd_line_argument("epsilon", epsilon, 0.05);
@@ -500,7 +614,7 @@ Options::Verification::Verification(cutlass::CommandLine const &cmdline) {
   }
 
   if (cmdline.check_cmd_line_flag("verification-providers")) {
-    
+
     std::vector<std::string> tokens;
     cmdline.get_cmd_line_arguments("verification-providers", tokens);
 
@@ -516,7 +630,7 @@ Options::Verification::Verification(cutlass::CommandLine const &cmdline) {
   else {
     providers.push_back(library::Provider::kCUBLAS);
     providers.push_back(library::Provider::kReferenceDevice);
-    providers.push_back(library::Provider::kCUDNN);      
+    providers.push_back(library::Provider::kCUDNN);
   }
 }
 
@@ -583,7 +697,7 @@ size_t Options::Verification::index(library::Provider provider) const {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 Options::Report::Report(cutlass::CommandLine const &cmdline) {
-  
+
   cmdline.get_cmd_line_argument("append", append, false);
   cmdline.get_cmd_line_argument("output", output_path);
   cmdline.get_cmd_line_argument("junit-output", junit_output_path);
@@ -596,7 +710,11 @@ Options::Report::Report(cutlass::CommandLine const &cmdline) {
 
   cmdline.get_cmd_line_argument("verbose", verbose, true);
 
-  cmdline.get_cmd_line_argument("sort-results", sort_results, false);
+  cmdline.get_cmd_line_argument("sort-results-flops-per-byte", sort_flops_per_byte, false);
+
+  cmdline.get_cmd_line_argument("sort-results-flops-per-sec", sort_flops_per_sec, false);
+
+  cmdline.get_cmd_line_argument("print-kernel-before-running", print_kernel_before_running, false);
 }
 
 void Options::Report::print_usage(std::ostream &out) const {
@@ -612,6 +730,10 @@ void Options::Report::print_usage(std::ostream &out) const {
 
     << "  --junit-output=<path>                        "
     << "    Path to junit output file for result reporting. Operation kind and '.junit.xml' is appended.\n\n"
+
+    << "  --print-kernel-before-running=<bool>                "
+    << "    Prints the name of the kernel being profiled before running the kernel." << end_of_line
+    << "      This is useful for determining which kernel is causing a run of the profiler to hang\n\n"
 
     << "  --report-not-run=<bool>                      "
     << "    If true, reports the status of all kernels including those that" << end_of_line
@@ -634,7 +756,8 @@ void Options::Report::print_options(std::ostream &out, int indent) const {
     << indent_str(indent) << "append: " << append << "\n"
     << indent_str(indent) << "output: " << output_path << "\n"
     << indent_str(indent) << "junit-output: " << junit_output_path << "\n"
-    << indent_str(indent) << "report_not_run: " << report_not_run << "\n"
+    << indent_str(indent) << "print-kernel-before-running: " << print_kernel_before_running << "\n"
+    << indent_str(indent) << "report-not-run: " << report_not_run << "\n"
     << indent_str(indent) << "tags:\n";
 
   for (auto const & tag : pivot_tags) {
@@ -680,11 +803,11 @@ Options::Options(cutlass::CommandLine const &cmdline):
   device(cmdline),
   initialization(cmdline),
   library(cmdline),
-  profiling(cmdline), 
-  verification(cmdline), 
+  profiling(cmdline),
+  verification(cmdline),
   report(cmdline),
   about(cmdline) {
-  
+
   if (cmdline.check_cmd_line_flag("mode")) {
     std::string token;
     cmdline.get_cmd_line_argument("mode", token);
@@ -718,13 +841,72 @@ Options::Options(cutlass::CommandLine const &cmdline):
   }
   else if (cmdline.check_cmd_line_flag("kernels")) {
     cmdline.get_cmd_line_arguments("kernels", operation_names);
-    profiling.error_on_no_match = cmdline.check_cmd_line_flag("error-on-no-match");
+  }
+
+  if (cmdline.check_cmd_line_flag("kernels-file")) {
+    std::string filename;
+    cmdline.get_cmd_line_argument("kernels-file", filename, {});
+    std::ifstream input(filename);
+    if (!input.good()) {
+      throw std::runtime_error("failed to open: " + filename);
+    }
+    for (std::string line; getline(input, line);) {
+      operation_names.push_back(line);
+    }
+  } else if (cmdline.check_cmd_line_flag("testlist-file")) {
+    // Problems file is a CSV, where the first column is the kernel name and the rest are the problem arguments
+    std::string filename;
+    cmdline.get_cmd_line_argument("testlist-file", filename, {});
+    std::ifstream input(filename);
+    if (!input.good()) {
+      throw std::runtime_error("failed to open: " + filename);
+    }
+
+    std::string line;
+    std::vector<std::string> col_names;
+    // Read header line
+    if (std::getline(input, line)) {
+      std::stringstream ss(line);
+      std::string header;
+      while (std::getline(ss, header, ',')) {
+        col_names.push_back(header);
+      }
+    }
+
+    // Read content lines
+    while (std::getline(input, line)) {
+      std::stringstream ss(line);
+      std::string item;
+
+      size_t colIdx = 0;
+      std::string operation_name;
+
+      std::unordered_map<std::string, std::string> arguments;
+
+      while (std::getline(ss, item, ',')) {
+        if (!colIdx) {
+          // First column is operation name
+          if (operation_problems.find(item) == operation_problems.end()) {
+            operation_names.push_back(item);
+          }
+          operation_name = item;
+        } else {
+          if (colIdx < col_names.size()) {
+            arguments[col_names[colIdx]] = item;
+          }
+        }
+        colIdx++;
+      }
+      operation_problems[operation_name].emplace_back(arguments);
+    }
   }
 
   if (cmdline.check_cmd_line_flag("ignore-kernels")) {
     cmdline.get_cmd_line_arguments("ignore-kernels", excluded_operation_names);
-    profiling.error_on_no_match = cmdline.check_cmd_line_flag("error-on-no-match");
   }
+
+  profiling.error_on_no_match            = cmdline.check_cmd_line_flag("error-on-no-match");
+  profiling.error_if_nothing_is_profiled = cmdline.check_cmd_line_flag("error-if-nothing-is-profiled");
 
   // Prevent launches on the device for anything other than CUTLASS operation
   // Allow verification only on host
@@ -762,8 +944,17 @@ void Options::print_usage(std::ostream &out) const {
     << "      (\"s1688\" and \"nt\") or (\"s844\" and \"tn\" and \"align8\") in their" << end_of_line
     << "      operation name using --kernels=\"s1688*nt, s884*tn*align8\"\n\n"
 
+    << "  --kernels-file=<filename>                      "
+    << "    Same behavior as --kernels, but kernel names are specified in a file" << end_of_line
+    << "    with one kernel on each line. Set of profiled kernels is the union of kernels specified" << end_of_line
+    << "    here and those specified in `kernels`.\n\n"
+
     << "  --ignore-kernels=<string_list>               "
     << "    Excludes kernels whose names match anything in this list.\n\n"
+
+    << "  --testlist-file=<filename>               "
+    << "    A CSV, where each row is a problem, where the first column is the kernel name and the rest are the problem arguments" << end_of_line
+	<< "    The column names should match cutlass_profiler cmd line arguments. \n\n"
     ;
 
   //

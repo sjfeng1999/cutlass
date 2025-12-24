@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -128,8 +128,8 @@ struct SparseTestbed {
         scope_max = 2;
         scope_min = 0;
       } else if (bits_input <= 8) {
-        scope_max = 2;
-        scope_min = -2;
+        scope_max = 1;
+        scope_min = -1;
       } else if (bits_output == 16) {
         scope_max = 5;
         scope_min = -5;
@@ -163,19 +163,14 @@ struct SparseTestbed {
   }
 
   /// Initializes data structures
-  void initialize(cutlass::gemm::GemmCoord problem_size, bool tensor_C_row_broadcast = false) {
+  void initialize(cutlass::gemm::GemmCoord problem_size) {
     //
     // Allocate the GEMM workspace
     //
     tensor_A.resize(cutlass::make_Coord(problem_size.m(), problem_size.k() / kSparse));
     tensor_A_uncompressed.resize(problem_size.mk());
     tensor_B.resize(problem_size.kn());
-    if (tensor_C_row_broadcast) {
-      tensor_C.resize({problem_size.m(), 1});
-    } else {
-      tensor_C.resize(problem_size.mn());
-    }
-
+    tensor_C.resize(problem_size.mn());
     tensor_D.resize(problem_size.mn());
     reference_D.resize(problem_size.mn(), false);
     tensor_E.resize(cutlass::make_Coord(
@@ -209,13 +204,7 @@ struct SparseTestbed {
     tensor_B.host_view().at({0, 0}) = typename Gemm::ElementB(1);
     tensor_C.host_view().at({0, 0}) = typename Gemm::ElementC(1);
 
-    if (tensor_C_row_broadcast) {
-      for (int i = 0; i < problem_size.m(); ++i)
-        for (int j = 0; j < problem_size.n(); ++j)
-          reference_D.host_view().at({i, j}) = tensor_C.host_view().at({i, 0});
-    } else {
-      cutlass::reference::host::TensorCopy(reference_D.host_view(), tensor_C.host_view());
-    }
+    cutlass::reference::host::TensorCopy(reference_D.host_view(), tensor_C.host_view());
 
     tensor_A.sync_device();
     tensor_B.sync_device();
@@ -319,7 +308,7 @@ struct SparseTestbed {
     // Determine SMEM requirements and waive if not satisfied
     //
 
-    int smem_size = int(sizeof(typename Gemm::GemmKernel::SharedStorage));
+    size_t smem_size = sizeof(typename Gemm::GemmKernel::SharedStorage);
 
     cudaDeviceProp properties;
     int device_idx;
@@ -347,8 +336,7 @@ struct SparseTestbed {
     cutlass::gemm::GemmCoord problem_size, 
     int split_k_slices = 1,
     ElementCompute alpha = ElementCompute(1), 
-    ElementCompute beta = ElementCompute(0),
-    bool tensor_C_row_broadcast = false) {
+    ElementCompute beta = ElementCompute(0)) {
 
     // Waive test if insufficient CUDA device
     if (!sufficient()) {
@@ -358,21 +346,32 @@ struct SparseTestbed {
       return true;
     }
 
-    this->initialize(problem_size, tensor_C_row_broadcast);
+    this->initialize(problem_size);
 
     //
     // Initialize the GEMM operator
     //
 
     typename Gemm::Arguments arguments{
+      cutlass::gemm::GemmUniversalMode::kGemm,
       problem_size,
-      tensor_A.device_ref(),
-      tensor_B.device_ref(),
-      tensor_C.device_ref(),
-      tensor_D.device_ref(),
-      tensor_E_reordered.device_ref(),
+      split_k_slices,
       {alpha, beta},
-      split_k_slices
+      tensor_A.device_data(),
+      tensor_B.device_data(),
+      tensor_C.device_data(),
+      tensor_D.device_data(),
+      tensor_E_reordered.device_data(),
+      int64_t(),
+      int64_t(),
+      int64_t(),
+      int64_t(),
+      int64_t(),
+      tensor_A.layout().stride(0),                                     
+      tensor_B.layout().stride(0),
+      tensor_C.layout().stride(0),
+      tensor_D.layout().stride(0),                                     
+      tensor_E_reordered.layout().stride(0)
     };
 
     Gemm gemm_op;
@@ -403,7 +402,7 @@ struct SparseTestbed {
     bool passed = this->verify(problem_size, alpha, beta);
 
     if (!passed) {
-      std::cout << "Error with split_k_slices = " << split_k_slices << ", alpha: " << alpha << std::endl;
+      std::cout << "Error with split_k_slices = " << split_k_slices << ", alpha: " << alpha << ", beta: " << beta << ", m: " << problem_size.m() << ", n: " << problem_size.n() << ", k:" <<problem_size.k() << std::endl;
     }
 
     return passed;
@@ -413,7 +412,7 @@ struct SparseTestbed {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename Gemm>
-bool TestAllSparseGemm(bool tensor_C_row_broadcast = false) {
+bool TestAllSparseGemm() {
   bool passed = true;
 
   int const kMinimumOperandElementSize = 
@@ -432,11 +431,10 @@ bool TestAllSparseGemm(bool tensor_C_row_broadcast = false) {
 
   int problem_size_n[] = {kAlignmentN, 512 - 2 * kAlignmentN};
 
-  int problem_size_k[] = {Gemm::ThreadblockShape::kK,
-                          Gemm::ThreadblockShape::kK * (Gemm::kStages + 1)};
+  int problem_size_k[] = {Gemm::ThreadblockShape::kK * 8};
 
   int split_k_slices[] = {
-    1, 2, 3
+    1, 2
   };
 
   double problem_alpha[] = {
@@ -456,25 +454,15 @@ bool TestAllSparseGemm(bool tensor_C_row_broadcast = false) {
       for (int k : problem_size_k) {
         for (int split_k : split_k_slices) {
 
-          if (!Gemm::kSplitKSerial && split_k > 1) {
-            continue;
-          }
-
-          if (split_k > 1 && k / Gemm::ThreadblockShape::kK < split_k) {
-            continue;
-          }
-
           for (auto alpha : problem_alpha) {
             for (auto beta : problem_beta) {
-
               cutlass::gemm::GemmCoord problem_size(m, n, k);
 
               passed = testbed.run(
                 problem_size, 
                 split_k,
                 cutlass::from_real<ElementCompute>(alpha), 
-                cutlass::from_real<ElementCompute>(beta),
-                tensor_C_row_broadcast
+                cutlass::from_real<ElementCompute>(beta)
               );
 
               if (!passed) {

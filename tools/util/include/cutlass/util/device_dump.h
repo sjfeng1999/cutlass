@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
 
 #pragma once
 
-#include <stdio.h>
+#include <cstdio>
 #include "cutlass/cutlass.h"
 
 /**
@@ -69,7 +69,7 @@ CUTLASS_DEVICE void dump_fragment(Fragment const& frag, int N = 0, int M = 0,
     return;
   }
 
-  int total_elements = frag.size();
+  int total_elements = int(frag.size());
 
   if (M < 0 || M > total_elements) {
     if (thread_id == 0 && block_id == 0)

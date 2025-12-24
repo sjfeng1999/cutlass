@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -144,7 +144,7 @@ int run() {
   // Construct Gemm ProblemSize with user defined output size
   cutlass::gemm::GemmCoord problem_size = {1024, 512, 1024};
 
-  // Stride factor shows the distance between two elements in the differnet dimensions.  The
+  // Stride factor shows the distance between two elements in the different dimensions.  The
   // first data is the logical distance between two rows, the second is between two columns.
   // CUTLASS has a utility tool cutlass::layout::Affine2Layout_Factory<Layout>::layout_factory
   // to help to convert stride_factor to the two strides.

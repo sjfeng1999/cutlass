@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,6 +66,7 @@
 #include "cutlass/epilogue/warp/tile_iterator_tensor_op_mixed.h"
 #include "cutlass/epilogue/threadblock/default_thread_map_tensor_op.h"
 #include "cutlass/epilogue/threadblock/predicated_tile_iterator.h"
+#include "cutlass/epilogue/threadblock/predicated_tile_iterator_conv.h"
 #include "cutlass/epilogue/threadblock/predicated_tile_iterator_strided_dgrad.h"
 #include "cutlass/epilogue/threadblock/predicated_tile_iterator_affine.h"
 #include "cutlass/epilogue/threadblock/shared_load_iterator.h"
@@ -232,6 +233,44 @@ template <
   typename ThreadMap
 >
 struct DefaultIteratorsTensorOp<
+  bfloat16_t,
+  int32_t,
+  8,
+  ThreadblockShape,
+  WarpShape,
+  InstructionShape,
+  ThreadMap> {
+
+  using WarpTileIterator = cutlass::epilogue::warp::TileIteratorTensorOpMixed<
+    WarpShape,
+    InstructionShape,
+    int32_t,
+    32,
+    16,
+    8,
+    8
+  >;
+
+  using SharedLoadIterator = cutlass::epilogue::threadblock::SharedLoadIteratorMixed<
+    ThreadMap,
+    int32_t,
+    32,
+    16,
+    8,
+    8
+  >;
+
+  static int const kFragmentsPerIteration = 2;
+};
+
+/// Partial specialization for half <= int32_t x 8 epilogues avoids shared memory bank conflicts.
+template <
+  typename ThreadblockShape,
+  typename WarpShape,
+  typename InstructionShape,
+  typename ThreadMap
+>
+struct DefaultIteratorsTensorOp<
   half_t, 
   int32_t, 
   8, 
@@ -287,7 +326,7 @@ struct DefaultIteratorsTensorOp<
                 platform::is_same<ElementOutput, uint8_t>::value,
                 "ElementOutput needs to be 4 or 8 bit (unsigned) int.");
 
-   static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8),
+   static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8 || ElementsPerAccess == 4),
                 "ElementsPerAccess needs to be 16 or 8.");
   
   using WarpTileIteratorMixed = cutlass::epilogue::warp::TileIteratorTensorOpMixed<
@@ -308,7 +347,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using WarpTileIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              WarpTileIteratorNotMixed,
                              WarpTileIteratorMixed>::type;
 
@@ -327,7 +366,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using SharedLoadIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              SharedLoadIteratorNotMixed,
                              SharedLoadIteratorMixed>::type;
 
@@ -354,7 +393,7 @@ struct DefaultIteratorsTensorOp<
 
   using ElementOutput = cutlass::float_e4m3_t;
 
-  static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8),
+  static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8 || ElementsPerAccess == 4),
               "ElementsPerAccess needs to be 16 or 8.");
   
   using WarpTileIteratorMixed = cutlass::epilogue::warp::TileIteratorTensorOpMixed<
@@ -375,7 +414,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using WarpTileIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              WarpTileIteratorNotMixed,
                              WarpTileIteratorMixed>::type;
 
@@ -394,7 +433,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using SharedLoadIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              SharedLoadIteratorNotMixed,
                              SharedLoadIteratorMixed>::type;
 
@@ -421,7 +460,7 @@ struct DefaultIteratorsTensorOp<
 
   using ElementOutput = cutlass::float_e5m2_t;
 
-  static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8),
+  static_assert((ElementsPerAccess == 16 || ElementsPerAccess == 8 || ElementsPerAccess == 4),
               "ElementsPerAccess needs to be 16 or 8.");
   
   using WarpTileIteratorMixed = cutlass::epilogue::warp::TileIteratorTensorOpMixed<
@@ -442,7 +481,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using WarpTileIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              WarpTileIteratorNotMixed,
                              WarpTileIteratorMixed>::type;
 
@@ -461,7 +500,7 @@ struct DefaultIteratorsTensorOp<
   >;
 
   using SharedLoadIterator = typename platform::conditional<
-                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8),
+                             (ThreadblockShape::kN == 256) || (ThreadblockShape::kN == 128 && ElementsPerAccess == 8) || (ElementsPerAccess == 4),
                              SharedLoadIteratorNotMixed,
                              SharedLoadIteratorMixed>::type;
 
@@ -480,7 +519,9 @@ template <
   typename OutputOp_,
   int ElementsPerAccess,
   bool ScatterD = false,
-  typename PermuteDLayout = layout::NoPermute
+  typename PermuteDLayout = layout::NoPermute,
+  conv::StrideSupport StrideSupport = conv::StrideSupport::kUnity,
+  int Rank = 4
 >
 struct DefaultEpilogueTensorOp {
 
@@ -493,6 +534,8 @@ struct DefaultEpilogueTensorOp {
   using ElementOutput = typename OutputOp::ElementOutput;
   using LayoutC = typename WarpMmaTensorOp::LayoutC;
   using ElementAccumulator = typename WarpMmaTensorOp::ElementC;
+  static conv::StrideSupport const kStrideSupport = StrideSupport;
+  static int const kRank = Rank;
 
   //
   // Thread map
@@ -508,13 +551,26 @@ struct DefaultEpilogueTensorOp {
 
   static bool const UseCUDAStore = platform::is_same<ElementOutput, double>::value;
 
-  using OutputTileIterator = cutlass::epilogue::threadblock::PredicatedTileIterator<
+  using PackedOutputTileIterator = cutlass::epilogue::threadblock::PredicatedTileIterator<
     OutputTileThreadMap,
     ElementOutput,
     ScatterD,
     PermuteDLayout,
     UseCUDAStore
   >;
+
+  using StridedOutputTileIterator = cutlass::epilogue::threadblock::PredicatedTileIteratorConv<
+    OutputTileThreadMap,
+    ElementOutput,
+    ScatterD,
+    PermuteDLayout,
+    UseCUDAStore,
+    kRank
+  >;
+
+  using OutputTileIterator = typename platform::conditional<StrideSupport == cutlass::conv::StrideSupport::kUnity,
+                                                            PackedOutputTileIterator,
+                                                            StridedOutputTileIterator>::type;
 
   using AccumulatorFragmentIterator = typename platform::conditional<is_complex<ElementOutput>::value,
                                     cutlass::epilogue::warp::FragmentIteratorComplexTensorOp<

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -153,7 +153,7 @@ struct Options {
 
     out << "13_fused_two_gemms_grouped_f16_sm80_rf\n\n"
       << "  This example runs a grouped back-to-back GEMM kernel. A group of independent back-to-back GEMMs are\n"
-      << "  run in a single kernel. Each indivdual problem in the group is subject to the same constraints that non-grouped\n"
+      << "  run in a single kernel. Each individual problem in the group is subject to the same constraints that non-grouped\n"
       << "  back-to-back GEMMs are subject to.s"
       << "Options:\n\n"
       << "  --help                           If specified, displays this usage statement.\n\n"

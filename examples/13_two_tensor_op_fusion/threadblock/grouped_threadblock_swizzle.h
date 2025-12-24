@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -88,34 +88,6 @@ struct GroupedThreadblockSwizzle : detail::GroupedThreadblockSwizzleBase {
   static int get_log_tile(GemmCoord /*tiled_shape*/) {
     return 0;
   }
-};
-
-template <
-  typename ThreadblockShape,
-  typename LayoutC,
-  cutlass::gemm::kernel::GroupScheduleMode GroupScheduleMode_ = cutlass::gemm::kernel::GroupScheduleMode::kDeviceOnly,
-  int PrefetchTileCount = 128,
-  int ThreadCount = PrefetchTileCount>
-struct GemmGroupedThreadblockSwizzle : GroupedThreadblockSwizzle<
-                                          cutlass::gemm::kernel::GemmGroupedProblemVisitor<
-                                            ThreadblockShape,
-                                            GroupScheduleMode_,
-                                            PrefetchTileCount,
-                                            ThreadCount,
-                                            platform::is_same<LayoutC, cutlass::layout::ColumnMajor>::value
-                                          >
-                                        > {
-  using Base = GroupedThreadblockSwizzle<cutlass::gemm::kernel::GemmGroupedProblemVisitor<
-                                            ThreadblockShape,
-                                            GroupScheduleMode_,
-                                            PrefetchTileCount,
-                                            ThreadCount,
-                                            platform::is_same<LayoutC, cutlass::layout::ColumnMajor>::value>>;
-
-  CUTLASS_HOST_DEVICE
-  GemmGroupedThreadblockSwizzle(typename Base::ProblemVisitor::Params& params,
-                                typename Base::ProblemVisitor::SharedStorage& shared_storage,
-                                int block_idx) : Base(params, shared_storage, block_idx) {}
 };
 
 template <

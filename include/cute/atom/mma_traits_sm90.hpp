@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,13 +41,15 @@ namespace cute {
 //////////////////////// fp64 = fp64 * fp64 + fp64 ////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+using SM90_16x8x4_F64F64F64F64_TN = SM90::MMA_16x8x4_F64F64F64F64_TN;
+
 template <>
 struct MMA_Traits<SM90_16x8x4_F64F64F64F64_TN>
 {
-  using ElementDVal = double;
-  using ElementAVal = double;
-  using ElementBVal = double;
-  using ElementCVal = double;
+  using ValTypeD = double;
+  using ValTypeA = double;
+  using ValTypeB = double;
+  using ValTypeC = double;
 
   using Shape_MNK = Shape<_16,_8,_4>;
   using ThrID =  Layout<_32>;
@@ -59,13 +61,15 @@ struct MMA_Traits<SM90_16x8x4_F64F64F64F64_TN>
                          Stride<Stride<_32,_1>,Stride<_16,_8>>>;
 };
 
+using SM90_16x8x8_F64F64F64F64_TN = SM90::MMA_16x8x8_F64F64F64F64_TN;
+
 template <>
 struct MMA_Traits<SM90_16x8x8_F64F64F64F64_TN>
 {
-  using ElementDVal = double;
-  using ElementAVal = double;
-  using ElementBVal = double;
-  using ElementCVal = double;
+  using ValTypeD = double;
+  using ValTypeA = double;
+  using ValTypeB = double;
+  using ValTypeC = double;
 
   using Shape_MNK = Shape<_16,_8,_8>;
   using ThrID   = Layout<_32>;
@@ -77,13 +81,15 @@ struct MMA_Traits<SM90_16x8x8_F64F64F64F64_TN>
                          Stride<Stride<_32,_1>,Stride<_16,_8>>>;
 };
 
+using SM90_16x8x16_F64F64F64F64_TN = SM90::MMA_16x8x16_F64F64F64F64_TN;
+
 template <>
 struct MMA_Traits<SM90_16x8x16_F64F64F64F64_TN>
 {
-  using ElementDVal = double;
-  using ElementAVal = double;
-  using ElementBVal = double;
-  using ElementCVal = double;
+  using ValTypeD = double;
+  using ValTypeA = double;
+  using ValTypeB = double;
+  using ValTypeC = double;
 
   using Shape_MNK = Shape<_16,_8,_16>;
   using ThrID   = Layout<_32>;
@@ -99,34 +105,40 @@ struct MMA_Traits<SM90_16x8x16_F64F64F64F64_TN>
 //////////////////////// cfp64 = cfp64 * cfp64 + cfp64 ////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////
 
+using SM90_16x8x4_C64C64C64C64_TN  = SM90::MMA_16x8x4_C64C64C64C64_TN;
+
 template <>
 struct MMA_Traits<SM90_16x8x4_C64C64C64C64_TN>
-     : MMA_Traits<SM90_16x8x4_F64F64F64F64_TN> 
+     : MMA_Traits<SM90_16x8x4_F64F64F64F64_TN>
 {
-  using ElementDVal = complex<double>;
-  using ElementAVal = complex<double>;
-  using ElementBVal = complex<double>;
-  using ElementCVal = complex<double>;
+  using ValTypeD = complex<double>;
+  using ValTypeA = complex<double>;
+  using ValTypeB = complex<double>;
+  using ValTypeC = complex<double>;
 };
+
+using SM90_16x8x8_C64C64C64C64_TN  = SM90::MMA_16x8x8_C64C64C64C64_TN;
 
 template <>
 struct MMA_Traits<SM90_16x8x8_C64C64C64C64_TN>
-     : MMA_Traits<SM90_16x8x8_F64F64F64F64_TN> 
+     : MMA_Traits<SM90_16x8x8_F64F64F64F64_TN>
 {
-  using ElementDVal = complex<double>;
-  using ElementAVal = complex<double>;
-  using ElementBVal = complex<double>;
-  using ElementCVal = complex<double>;
+  using ValTypeD = complex<double>;
+  using ValTypeA = complex<double>;
+  using ValTypeB = complex<double>;
+  using ValTypeC = complex<double>;
 };
+
+using SM90_16x8x16_C64C64C64C64_TN = SM90::MMA_16x8x16_C64C64C64C64_TN;
 
 template <>
 struct MMA_Traits<SM90_16x8x16_C64C64C64C64_TN>
-     : MMA_Traits<SM90_16x8x16_F64F64F64F64_TN> 
+     : MMA_Traits<SM90_16x8x16_F64F64F64F64_TN>
 {
-  using ElementDVal = complex<double>;
-  using ElementAVal = complex<double>;
-  using ElementBVal = complex<double>;
-  using ElementCVal = complex<double>;
+  using ValTypeD = complex<double>;
+  using ValTypeA = complex<double>;
+  using ValTypeB = complex<double>;
+  using ValTypeC = complex<double>;
 };
 
 } // end namespace cute

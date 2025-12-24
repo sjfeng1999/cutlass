@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,12 +65,14 @@ private:
 
   /// Size of device workspace in bytes
   size_t workspace_size_;
-    
+
   /// Indicates whether scalars are host or device pointers
   ScalarPointerMode scalar_pointer_mode_;
 
   /// Pointer to the most recently executed operation
   Operation const *last_operation_;
+
+  int device_idx_;
 
 public:
 
@@ -89,7 +91,7 @@ public:
   //
   // Persistent state accessors
   //
-  
+
   /// Returns compute capability of the selected device
   int compute_capability() const;
 
@@ -135,7 +137,7 @@ public:
     int K,                                    /// GEMM K dimension
 
     NumericTypeID element_compute,            /// Data type of internal accumulation
-    
+
     NumericTypeID element_scalar,             /// Data type of alpha/beta scalars
 
     void const *alpha,                        /// Pointer to alpha scalar
@@ -164,7 +166,7 @@ public:
     void * ptr_D,                             /// Pointer to D matrix
     int64_t ldd                               /// Leading dimension of D matrix
   );
-  
+
   /// Executes a GEMM computation: D <= alpha * A*B + beta * C.
   //
   // Supports batched-strided, batched array or split-K serial or split-K parallel.
@@ -176,7 +178,15 @@ public:
     int M,                                    /// GEMM M dimension
     int N,                                    /// GEMM N dimension
     int K,                                    /// GEMM K dimension
-
+    
+    int cluster_m,                            /// cluster shape M dimension
+    int cluster_n,                            /// cluster shape N dimension
+    int cluster_k,                            /// cluster shape K dimension
+    int cluster_m_fallback,                   /// Fallback cluster shape M dimension
+    int cluster_n_fallback,                   /// Fallback cluster shape N dimension
+    int cluster_k_fallback,                   /// Fallback cluster shape K dimension
+    
+    
     NumericTypeID element_compute,            /// Data type of internal accumulation
 
     NumericTypeID element_scalar,             /// Data type of alpha/beta scalars
@@ -218,7 +228,7 @@ public:
   /// Planar complex GEMM
   ///
   /// Note, all data types are the real-valued base types used by the planar-complex GEMM kernel.
-  ///                       
+  ///
   Status gemm_planar_complex(
 
     int M,                                    /// GEMM M dimension
@@ -245,7 +255,7 @@ public:
     ComplexTransform transform_B,             /// Complex transformation applied to B matrix
 
     void const * ptr_B_real,                  /// Pointer to real part of B matrix
-    void const * ptr_B_imag,                  /// Pointer to imaginary part of B matrix 
+    void const * ptr_B_imag,                  /// Pointer to imaginary part of B matrix
     int64_t ldb_real,                         /// Leading dimension of real part of B matrix
     int64_t ldb_imag,                         /// Leading dimension of imaginary part of B matrix
 
@@ -301,7 +311,7 @@ public:
     ComplexTransform transform_A,             /// Complex transformation applied to A matrix
 
     void const * const * ptr_A_real,          /// Pointer to array containing pointers to real part of A matrices
-    void const * const * ptr_A_imag,          /// Pointer to array containing pointers to imaginary part of A matrices 
+    void const * const * ptr_A_imag,          /// Pointer to array containing pointers to imaginary part of A matrices
 
     int64_t lda_real,                         /// Leading dimension of real part of A matrix
     int64_t lda_imag,                         /// Leading dimension of imaginary part of A matrix

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,9 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/tensor.hpp>
-
-#include <cute/algorithm/fill.hpp>
+#include <cute/config.hpp>          // CUTE_HOST_DEVICE
+#include <cute/tensor_impl.hpp>     // cute::Tensor
+#include <cute/algorithm/fill.hpp>  // cute::fill
 
 namespace cute
 {

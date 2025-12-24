@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,7 @@
 #include "../../common/cutlass_unit_test.h"
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm.h"
+#include "cutlass/gemm/device/gemm_universal.h"
 #include "cutlass/util/host_tensor.h"
 #include "cutlass/util/reference/host/gemm.h"
 #include "cutlass/util/reference/host/tensor_compare.h"

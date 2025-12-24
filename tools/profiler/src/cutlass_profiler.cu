@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,15 +36,18 @@
 #include <stdexcept>
 
 // Profiler includes
-#include "cutlass_profiler.h"
-#include "gemm_operation_profiler.h"
-#include "rank_k_operation_profiler.h"
-#include "rank_2k_operation_profiler.h"
-#include "trmm_operation_profiler.h"
-#include "symm_operation_profiler.h"
-#include "conv2d_operation_profiler.h"          
-#include "conv3d_operation_profiler.h"          
-#include "sparse_gemm_operation_profiler.h"
+#include "cutlass/profiler/block_scaled_gemm_operation_profiler.h"
+#include "cutlass/profiler/blockwise_gemm_operation_profiler.h"
+#include "cutlass/profiler/conv2d_operation_profiler.h"
+#include "cutlass/profiler/conv3d_operation_profiler.h"
+#include "cutlass/profiler/cutlass_profiler.h"
+#include "cutlass/profiler/gemm_operation_profiler.h"
+#include "cutlass/profiler/grouped_gemm_operation_profiler.h"
+#include "cutlass/profiler/rank_2k_operation_profiler.h"
+#include "cutlass/profiler/rank_k_operation_profiler.h"
+#include "cutlass/profiler/sparse_gemm_operation_profiler.h"
+#include "cutlass/profiler/symm_operation_profiler.h"
+#include "cutlass/profiler/trmm_operation_profiler.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -55,10 +58,14 @@ namespace profiler {
 
 CutlassProfiler::CutlassProfiler(
   Options const &options
-): 
+):
   options_(options) {
 
   operation_profilers_.emplace_back(new GemmOperationProfiler(options));
+
+  operation_profilers_.emplace_back(new BlockScaledGemmOperationProfiler(options));
+
+  operation_profilers_.emplace_back(new BlockwiseGemmOperationProfiler(options));   
 
   operation_profilers_.emplace_back(new SparseGemmOperationProfiler(options));
 
@@ -73,6 +80,8 @@ CutlassProfiler::CutlassProfiler(
   operation_profilers_.emplace_back(new TrmmOperationProfiler(options));
 
   operation_profilers_.emplace_back(new SymmOperationProfiler(options));
+
+  operation_profilers_.emplace_back(new GroupedGemmOperationProfiler(options));
 }
 
 CutlassProfiler::~CutlassProfiler() {
@@ -143,17 +152,19 @@ void CutlassProfiler::enumerate_() {
 /// Profiles all operations
 int CutlassProfiler::profile_() {
 
-  int result = 0;
+  // Keep track of all device memory tensor in map
   DeviceContext device_context;
 
-  // For all profilers
+  int result = 0;
+  // For all profilers (e.g. gemm/sparse_gemm/conv2d...)
   for (auto & profiler : operation_profilers_) {
 
     if (options_.operation_kind == library::OperationKind::kInvalid ||
-      options_.operation_kind == profiler->kind()) {
+        options_.operation_kind == profiler->kind()) {
 
       result = profiler->profile_all(options_, library::Singleton::get().manifest, device_context);
 
+      // If some profile failed, terminate immediately
       if (result) {
         return result;
       }
@@ -193,28 +204,16 @@ void CutlassProfiler::print_usage_(std::ostream &out) {
     << "  $ cutlass_profiler --operation=RankK --help\n\n"
     << "  $ cutlass_profiler --operation=Trmm --help\n\n"
     << "  $ cutlass_profiler --operation=Symm --help\n\n"
-    << "  $ cutlass_profiler --operation=Conv3d --help\n\n"         
-    << "  $ cutlass_profiler --operation=Conv2d --help\n\n"         
+    << "  $ cutlass_profiler --operation=Conv3d --help\n\n"
+    << "  $ cutlass_profiler --operation=Conv2d --help\n\n"
     << "  $ cutlass_profiler --operation=SparseGemm --help\n\n"
+    << "  $ cutlass_profiler --operation=GroupedGemm --help\n\n"
   ;
 }
 
 /// Prints usage
 void CutlassProfiler::print_options_(std::ostream &out) {
   options_.print_options(out);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-/// Initializes the CUDA device
-void CutlassProfiler::initialize_device_() {
-
-  cudaError_t result = cudaSetDevice(options_.device.device);
-
-  if (result != cudaSuccess) {
-    std::cerr << "Failed to set device.";
-    throw std::runtime_error("Failed to set device");
-  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////

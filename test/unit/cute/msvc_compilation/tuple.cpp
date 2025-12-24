@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,51 +62,23 @@ TEST(CuTe_core_msvc_compilation, TupleAssignment)
   using forty_two_type = IC<int, 42>;
   using forty_three_type = IC<size_t, 43>;
 
-  using ebo_s_type = cute::detail::EBO<0, forty_two_type>;
-  [[maybe_unused]] ebo_s_type ebo_s;
-  static_assert(std::is_same_v<decltype(cute::detail::getv(ebo_s)), forty_two_type>);
-
-  using ebo_d_type = cute::detail::EBO<1, size_t>;
-  [[maybe_unused]] ebo_d_type ebo_d(43u);
-  assert(ebo_d.t_ == 43u);
-  static_assert(std::is_same_v<std::remove_const_t<std::remove_reference_t<decltype(cute::detail::getv(ebo_d))>>, size_t > );
-  assert(cute::detail::getv(ebo_d) == 43u);
-
-  [[maybe_unused]] cute::detail::TupleBase<std::index_sequence<0, 1, 2>, int, forty_two_type, size_t> tb0{
-          41, forty_two_type{}, size_t(43u) };
-  [[maybe_unused]] cute::detail::TupleBase<std::index_sequence<0, 1, 2>, int, forty_two_type, size_t> tb1;
-
   int val41 = ConvertibleTo{41};
   assert(val41 == 41);
   size_t val43 = ConvertibleTo{size_t(43u)};
   assert(val43 == size_t{43u});
-  [[maybe_unused]] cute::detail::TupleBase<std::index_sequence<0, 1, 2>, int, forty_two_type, size_t> tb2{
-        ConvertibleTo{41}, forty_two_type{}, ConvertibleTo{size_t(43u)}};
-
-  [[maybe_unused]] cute::detail::TupleBase<std::index_sequence<0>, int> tb3{ 41 };
-  [[maybe_unused]] cute::detail::TupleBase<std::index_sequence<0>, int> tb3a{ 42 };
-  tb3 = tb3a;
 
   using tuple_0d_type = cute::tuple<>;
   using tuple_1d_d_type = cute::tuple<int>;
-  using tuple_1d_s_type = cute::tuple<forty_two_type>;
   using tuple_2d_dd_type = cute::tuple<int, size_t>;
-  using tuple_2d_ss_type = cute::tuple<forty_two_type, forty_three_type>;
 
   [[maybe_unused]] tuple_0d_type t0;
 
   // Symptom: "illegal member initialization: 'TupleBase<int>' is not a base or member"
   [[maybe_unused]] tuple_1d_d_type t1{ 42 };
-
-  [[maybe_unused]] tuple_1d_s_type t2;
-
   [[maybe_unused]] tuple_1d_d_type t1a{ 43 };
   t1 = t1a;
 
   [[maybe_unused]] tuple_2d_dd_type t3{ 42, size_t(43u) };
-  [[maybe_unused]] tuple_2d_ss_type t4;
-  t3 = t4;
-
   [[maybe_unused]] tuple_2d_dd_type t3a{ 44, size_t(45u) };
   // Symptom: "illegal member initialization:
   // 'TupleBase<int, unsigned __int64>' is not a base or member"

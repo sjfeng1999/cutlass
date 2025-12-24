@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -138,7 +138,7 @@ struct ConvertAndPack<half_t, float, N, Round> {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Structure to compute the matrix product targeting CUDA cores and SIMT math instructions.
+/// Structure to compute the matrix product targeting Tensor Cores.
 template <
   /// Size of the Gemm problem - concept: gemm::GemmShape<>
   typename Shape_,
@@ -217,6 +217,14 @@ public:
   /// Number of partitions along K dimension
   static int const kPartitionsK = PartitionsK_;
 
+  #if defined(__CUDA_ARCH__) && ((__CUDA_ARCH__ < 800) || (__CUDA_ARCH__ == 890)) 
+    static int const kVerticalVisit = true;
+  #elif defined(__CUDA_ARCH__) && (__CUDA_ARCH__ == 1200) 
+    static int const kVerticalVisit = true;
+  #else
+    static int const kVerticalVisit = false;
+  #endif
+
 public:
 
   /// Iterates over the A operand in memory
@@ -293,16 +301,8 @@ public:
     MmaOperandB const *ptr_B = reinterpret_cast<MmaOperandB const *>(&B);
     MmaOperandC *ptr_D = reinterpret_cast<MmaOperandC *>(&D);
 
-    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)
-      // Serpentine visitation order maximizing reuse of Rb
-      // The visitation order is like
-      //      _   
-      //   | | | |
-      //   | | | |
-      //   |_| |_|
-      //
-      // Down Up Down Up
-
+      
+    if (kVerticalVisit) {
       CUTLASS_PRAGMA_UNROLL
       for (int n = 0; n < MmaIterations::kColumn; ++n) {
 
@@ -326,16 +326,7 @@ public:
           }
         }
       }
-    #elif defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
-      // Serpentine visitation order maximizing reuse of Ra
-      // The visitation order is like
-      //   _________
-      //   _________|
-      //  |_________
-      //  __________|
-      //
-      // Right Left Right Left 
-
+    } else {
       CUTLASS_PRAGMA_UNROLL
       for (int m = 0; m < MmaIterations::kRow; ++m) {
 
@@ -358,9 +349,7 @@ public:
           }
         }
       }
-    #else
-      assert(0);
-    #endif
+    }
   }
 
   /// Transform the mma operands to the required types
@@ -377,7 +366,7 @@ public:
     FloatRoundStyle const kRoundB =
         PreferredRoundingMode<typename ArchMmaOperator::ElementB,
                               ElementB>::kRound;
-    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)
+    if (kVerticalVisit) {    
       detail::ConvertAndPack<typename ArchMmaOperator::ElementA, ElementA,
                             FragmentA::kElements, kRoundA>
           convert_A;
@@ -394,8 +383,7 @@ public:
   
       ptr_dst_B[0] = convert_B(ptr_B[0]);
       ptr_dst_B[1] = convert_B(ptr_B[1]);
-
-    #elif defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
+    } else {
       detail::ConvertAndPack<typename ArchMmaOperator::ElementA, ElementA,
                             FragmentA::kElements / 2, kRoundA>
           convert_A;
@@ -412,9 +400,7 @@ public:
   
       ptr_dst_A[0] = convert_A(ptr_A[0]);
       ptr_dst_A[1] = convert_A(ptr_A[1]);
-    #else
-      assert(0);
-    #endif
+    }
   }
 };
 

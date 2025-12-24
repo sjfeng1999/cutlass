@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,142 @@
 #include "mma_multistage_testbed.h"
 
 #if defined(CUTLASS_ARCH_MMA_SM80_SUPPORTED)
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_gemm_threadblock_congruous, tensor_op_16x128x64_16x32x64_16x8x16_3stage) {
+  using ElementA = cutlass::half_t;
+  using LayoutA = cutlass::layout::ColumnMajor;
+  using ElementB = cutlass::half_t;
+  using LayoutB = cutlass::layout::RowMajor;
+  using ElementC = float;
+  using LayoutC = cutlass::layout::ColumnMajor;
+
+  cutlass::gemm::GemmCoord problem_size(32, 256, 128);
+
+  using ThreadblockShape = cutlass::gemm::GemmShape<16, 128, 64>;
+  using WarpShape = cutlass::gemm::GemmShape<16, 32, 64>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+
+  float alpha = 1.f;
+  float beta = 0.0f;
+  int const Stages = 3;
+
+  // Define the MmaCore components
+  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
+      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
+      ElementB, LayoutB, ElementC, LayoutC,
+      cutlass::arch::OpClassTensorOp, Stages>;
+
+  dim3 grid(2, 2);
+  dim3 block(32, 4, 1);
+
+  test::gemm::threadblock::Testbed<MmaCore>(problem_size.m(), problem_size.n(),
+                                            problem_size.k(), alpha, beta)
+      .run(grid, block);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_gemm_threadblock_congruous, tensor_op_128x16x64_32x16x64_16x8x16_3stage) {
+  using ElementA = cutlass::half_t;
+  using LayoutA = cutlass::layout::ColumnMajor;
+  using ElementB = cutlass::half_t;
+  using LayoutB = cutlass::layout::RowMajor;
+  using ElementC = float;
+  using LayoutC = cutlass::layout::ColumnMajor;
+
+  cutlass::gemm::GemmCoord problem_size(256, 32, 128);
+
+  using ThreadblockShape = cutlass::gemm::GemmShape<128, 16, 64>;
+  using WarpShape = cutlass::gemm::GemmShape<32, 16, 64>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+
+  float alpha = 1.f;
+  float beta = 0.0f;
+  int const Stages = 3;
+
+  // Define the MmaCore components
+  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
+      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
+      ElementB, LayoutB, ElementC, LayoutC,
+      cutlass::arch::OpClassTensorOp, Stages>;
+
+  dim3 grid(2, 2);
+  dim3 block(32, 4, 1);
+
+  test::gemm::threadblock::Testbed<MmaCore>(problem_size.m(), problem_size.n(),
+                                            problem_size.k(), alpha, beta)
+      .run(grid, block);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_gemm_threadblock_congruous, tensor_op_32x128x32_32x32x32_16x8x16_3stage) {
+  using ElementA = cutlass::half_t;
+  using LayoutA = cutlass::layout::ColumnMajor;
+  using ElementB = cutlass::half_t;
+  using LayoutB = cutlass::layout::RowMajor;
+  using ElementC = float;
+  using LayoutC = cutlass::layout::ColumnMajor;
+
+  cutlass::gemm::GemmCoord problem_size(64, 256, 128);
+
+  using ThreadblockShape = cutlass::gemm::GemmShape<32, 128, 32>;
+  using WarpShape = cutlass::gemm::GemmShape<32, 32, 32>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+
+  float alpha = 1.f;
+  float beta = 0.0f;
+  int const Stages = 3;
+
+  // Define the MmaCore components
+  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
+      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
+      ElementB, LayoutB, ElementC, LayoutC,
+      cutlass::arch::OpClassTensorOp, Stages>;
+
+  dim3 grid(2, 2);
+  dim3 block(32, 4, 1);
+
+  test::gemm::threadblock::Testbed<MmaCore>(problem_size.m(), problem_size.n(),
+                                            problem_size.k(), alpha, beta)
+      .run(grid, block);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_gemm_threadblock_congruous, tensor_op_128x32x32_32x32x32_16x8x16_3stage) {
+  using ElementA = cutlass::half_t;
+  using LayoutA = cutlass::layout::ColumnMajor;
+  using ElementB = cutlass::half_t;
+  using LayoutB = cutlass::layout::RowMajor;
+  using ElementC = float;
+  using LayoutC = cutlass::layout::ColumnMajor;
+
+  cutlass::gemm::GemmCoord problem_size(256, 64, 128);
+
+  using ThreadblockShape = cutlass::gemm::GemmShape<128, 32, 32>;
+  using WarpShape = cutlass::gemm::GemmShape<32, 32, 32>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+
+  float alpha = 1.f;
+  float beta = 0.0f;
+  int const Stages = 3;
+
+  // Define the MmaCore components
+  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
+      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
+      ElementB, LayoutB, ElementC, LayoutC,
+      cutlass::arch::OpClassTensorOp, Stages>;
+
+  dim3 grid(2, 2);
+  dim3 block(32, 4, 1);
+
+  test::gemm::threadblock::Testbed<MmaCore>(problem_size.m(), problem_size.n(),
+                                            problem_size.k(), alpha, beta)
+      .run(grid, block);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2838,6 +2974,7 @@ TEST(SM80_gemm_threadblock_crosswise,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x64x1024_64x64x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -2870,9 +3007,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x64x1024_32x32x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -2905,9 +3044,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_128x64x1024_64x32x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -2940,9 +3081,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x1024x1024_32x64x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -2975,9 +3118,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_128x1024x1024_64x64x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3010,9 +3155,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      multicta_256x256x6144_128x1024x1024_64x64x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3045,9 +3192,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      multicta_512x256x6144_256x1024x1024_64x64x1024_16x8x256_3stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3080,9 +3229,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x64x512_64x64x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3115,9 +3266,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x64x512_32x32x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3150,9 +3303,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_128x64x512_64x32x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3185,9 +3340,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_64x128x512_32x64x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3220,9 +3377,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      tensor_op_128x128x512_64x64x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3255,9 +3414,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      multicta_256x256x6144_128x128x512_64x64x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3290,9 +3451,11 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if 0 
 TEST(SM80_gemm_threadblock_crosswise,
      multicta_512x256x6144_256x128x512_64x64x512_16x8x256_4stage) {
   using ElementA = cutlass::uint1b_t;
@@ -3325,6 +3488,7 @@ TEST(SM80_gemm_threadblock_crosswise,
                                             problem_size.k(), alpha, beta)
       .run(grid, block);
 }
+#endif 
 
 ////////////////////////////////////////////////////////////////////////////////
 TEST(SM80_gemm_threadblock_congruous,

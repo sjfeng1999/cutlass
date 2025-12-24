@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <random>
+#include <stdexcept>
 
 // Cutlass includes
 #include "cutlass/cutlass.h"
@@ -158,6 +159,7 @@ struct RandomGaussianFunc {
   int int_scale;
   double pi;
   double pnz;
+  bool exclude_zero;
 
   //
   // Methods
@@ -167,9 +169,10 @@ struct RandomGaussianFunc {
     double mean_ = 0, 
     double stddev_ = 1,
     int int_scale_ = -1,
-    double pnz_ = 100.0
+    double pnz_ = 1.0,
+    bool exclude_zero_ = false
   ):
-    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_) {
+    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_), exclude_zero(exclude_zero_) {
       std::srand((unsigned)seed);
   }
 
@@ -190,13 +193,13 @@ struct RandomGaussianFunc {
     // Sample from the Bernoulli distribution, and use the result to sample from the Gaussian
     std::random_device rnd_device;
     std::mt19937 bernoulli_rnd(rnd_device());
-    std::bernoulli_distribution bernoulli_dist(pnz / 100);
+    std::bernoulli_distribution bernoulli_dist(pnz);
     bool bernoulli_result = bernoulli_dist(bernoulli_rnd);
 
     // Sample from the Gaussian distribution for a nonzero element
     if (bernoulli_result) {
       if (int_scale >= 0) {
-        rnd = double(int64_t(rnd * double(1 << int_scale))) / double(1 << int_scale);
+        rnd = double(std::llround(rnd * double(1 << int_scale))) / double(1 << int_scale);
         result = static_cast<Element>(rnd);
       }
       else {
@@ -206,6 +209,16 @@ struct RandomGaussianFunc {
     else {
       result = static_cast<Element>(0);
     }
+
+    // Note that exclude_zero = true will disable the bernoulli_result above by unsetting zeros
+    if (exclude_zero && result == Element(0)) {
+      if (rnd > 0) {
+        rnd += 1;
+      } else {
+        rnd -= 1;
+      }
+      result = Element(rnd);
+    }    
 
     return result;
   }
@@ -221,6 +234,7 @@ struct RandomGaussianFunc<complex<Element> > {
   int int_scale;
   double pi;
   double pnz;
+  bool exclude_zero;
 
   //
   // Methods
@@ -230,9 +244,10 @@ struct RandomGaussianFunc<complex<Element> > {
     double mean_ = 0, 
     double stddev_ = 1,
     int int_scale_ = -1,
-    double pnz_ = 100.0
+    double pnz_ = 1.0,
+    bool exclude_zero_ = false
   ):
-    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_) {
+    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_), exclude_zero(exclude_zero_) {
       std::srand((unsigned)seed);
   }
 
@@ -248,14 +263,14 @@ struct RandomGaussianFunc<complex<Element> > {
     // Sample from the Bernoulli distribution, and use the result to sample from the Gaussian
     std::random_device rnd_device;
     std::mt19937 bernoulli_rnd(rnd_device());
-    std::bernoulli_distribution bernoulli_dist(pnz / 100);
+    std::bernoulli_distribution bernoulli_dist(pnz);
     bool bernoulli_result = bernoulli_dist(bernoulli_rnd);
 
     // Sample from the Gaussian distribution for a nonzero element
     if (bernoulli_result) {
       if (int_scale >= 0) {
-        rnd[0] = double(int(rnd[0] * double(1 << int_scale)));
-        rnd[1] = double(int(rnd[1] * double(1 << int_scale)));
+        rnd[0] = double(std::llround(rnd[0] * double(1 << int_scale)));
+        rnd[1] = double(std::llround(rnd[1] * double(1 << int_scale)));
         reals[0] = from_real<Element>(rnd[0] / double(1 << int_scale));
         reals[1] = from_real<Element>(rnd[1] / double(1 << int_scale));
       }
@@ -267,6 +282,19 @@ struct RandomGaussianFunc<complex<Element> > {
     else {
       reals[0] = from_real<Element>(0);
       reals[1] = from_real<Element>(0);
+    }
+
+    // Note that this will invalidate the above else statement because it unsets zero elements
+    if (exclude_zero &&
+        reals[0] == from_real<Element>(0.0) &&
+        reals[1] == from_real<Element>(0.0)) {
+
+      if (rnd[0] > 0.0) {
+        rnd[0] += 1.0;
+      } else {
+        rnd[0] -= 1.0;
+      }
+      reals[0] = from_real<Element>(rnd[0]);
     }
 
     return complex<Element>(reals[0], reals[1]);
@@ -283,6 +311,7 @@ struct RandomGaussianFunc<Quaternion<Element> > {
   int int_scale;
   double pi;
   double pnz;
+  bool exclude_zero;
 
   //
   // Methods
@@ -292,9 +321,10 @@ struct RandomGaussianFunc<Quaternion<Element> > {
     double mean_ = 0,
     double stddev_ = 1,
     int int_scale_ = -1,
-    double pnz_ = 100.0
+    double pnz_ = 1.0,
+    bool exclude_zero_ = false
   ):
-    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_) {
+    seed(seed_), mean(mean_), stddev(stddev_), int_scale(int_scale_), pi(std::acos(-1)), pnz(pnz_), exclude_zero(exclude_zero_) {
       std::srand((unsigned)seed);
   }
 
@@ -312,16 +342,16 @@ struct RandomGaussianFunc<Quaternion<Element> > {
     // Sample from the Bernoulli distribution, and use the result to sample from the Gaussian
     std::random_device rnd_device;
     std::mt19937 bernoulli_rnd(rnd_device());
-    std::bernoulli_distribution bernoulli_dist(pnz / 100);
+    std::bernoulli_distribution bernoulli_dist(pnz);
     bool bernoulli_result = bernoulli_dist(bernoulli_rnd);
 
     // Sample from the Gaussian distribution for a nonzero element
     if (bernoulli_result) {
       if (int_scale >= 0) {
-        rnd1[0] = double(int(rnd1[0] * double(1 << int_scale)));
-        rnd1[1] = double(int(rnd1[1] * double(1 << int_scale)));
-        rnd2[0] = double(int(rnd2[0] * double(1 << int_scale)));
-        rnd2[1] = double(int(rnd2[1] * double(1 << int_scale)));
+        rnd1[0] = double(std::llround(rnd1[0] * double(1 << int_scale)));
+        rnd1[1] = double(std::llround(rnd1[1] * double(1 << int_scale)));
+        rnd2[0] = double(std::llround(rnd2[0] * double(1 << int_scale)));
+        rnd2[1] = double(std::llround(rnd2[1] * double(1 << int_scale)));
 
         reals[0] = from_real<Element>(rnd1[0] / double(1 << int_scale));
         reals[1] = from_real<Element>(rnd1[1] / double(1 << int_scale));
@@ -340,6 +370,21 @@ struct RandomGaussianFunc<Quaternion<Element> > {
       reals[1] = from_real<Element>(0);
       reals[2] = from_real<Element>(0);
       reals[3] = from_real<Element>(0);
+    }
+
+    // Note that this will invalidate the above else statement because it unsets zero elements
+    if (exclude_zero &&
+        reals[0] == from_real<Element>(0) &&
+        reals[1] == from_real<Element>(0) &&
+        reals[2] == from_real<Element>(0) &&
+        reals[3] == from_real<Element>(0)) {
+
+      if (rnd1[0] > 0.0) {
+        rnd1[0] += 1.0;
+      } else {
+        rnd1[0] -= 1.0;
+      }
+      reals[0] = from_real<Element>(rnd1[0]);
     }
 
     return Quaternion<Element>(reals[0], reals[1], reals[2], reals[3]);
@@ -439,10 +484,11 @@ void TensorFillRandomGaussian(
   double mean = 0,                        ///< Gaussian distribution's mean
   double stddev = 1,                      ///< Gaussian distribution's standard deviation
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that 
-  double pnz = 100.0) {                   ///  are not truncated to zero. Permits reducing precision of
+  double pnz = 1.0,                     ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
+  bool exclude_zero = false) {            ///< Exclude zeros from tensor init.
   
-  detail::RandomGaussianFunc<Element> random_func(seed, mean, stddev, bits, pnz);
+  detail::RandomGaussianFunc<Element> random_func(seed, mean, stddev, bits, pnz, exclude_zero);
 
   detail::TensorFillGaussianFunc<Element, Layout> func(
     dst,
@@ -465,8 +511,9 @@ void TensorFillRandomGaussian(
   double mean = 0,                                      ///< Gaussian distribution's mean
   double stddev = 1,                                    ///< Gaussian distribution's standard deviation
   int bits = -1,                                        ///< If non-negative, specifies number of fractional bits that 
-  double pnz = 100.0) {                                 ///  are not truncated to zero. Permits reducing precision of
+  double pnz = 1.0,                                   ///  are not truncated to zero. Permits reducing precision of
                                                         ///  data.
+  bool exclude_zero = false) {                          ///< Exclude zeros from tensor init.
   
   TensorFillRandomGaussian(dst.view_real(), seed, mean, stddev, bits, pnz);
   TensorFillRandomGaussian(dst.view_imag(), ~seed, mean, stddev, bits, pnz);
@@ -484,7 +531,7 @@ void TensorFillSymmetricRandomGaussian(
   double mean = 0,                        ///< Gaussian distribution's mean
   double stddev = 1,                      ///< Gaussian distribution's standard deviation
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that 
-  double pnz = 100.0) {                   ///  are not truncated to zero. Permits reducing precision of
+  double pnz = 1.0) {                   ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
 
   detail::RandomGaussianFunc<Element> random_func(seed, mean, stddev, bits, pnz);
@@ -514,7 +561,7 @@ void BlockFillRandomGaussian(
   double mean = 0,                        ///< Gaussian distribution's mean
   double stddev = 1,                      ///< Gaussian distribution's standard deviation
   int bits = -1,                          ///< If non-negative, specifies number of fractional bits that 
-  double pnz = 100.0) {                   ///  are not truncated to zero. Permits reducing precision of
+  double pnz = 1.0) {                   ///  are not truncated to zero. Permits reducing precision of
                                           ///  data.
   
 
@@ -541,23 +588,47 @@ struct RandomUniformFunc {
   double min;
   int int_scale;
 
-  //
-  // Methods
-  //
+  double pnan;
+private:
+  using engine_type = std::mt19937;
+public:
+  engine_type bernoulli_rnd;
+  std::bernoulli_distribution bernoulli_dist;
+
+  bool exclude_zero;
 
   RandomUniformFunc(
     uint64_t seed_ = 0, 
     double max = 1,
     double min_ = 0,
-    int int_scale_ = -1
+    int int_scale_ = -1,
+    double pnan_ = 0,
+    bool exclude_zero_ = false
   ):
-    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_) {
+    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_), pnan(pnan_)
+    , bernoulli_rnd{static_cast<engine_type::result_type>(seed_)}
+    , bernoulli_dist(pnan_)
+    , exclude_zero(exclude_zero_) 
+    {
       std::srand((unsigned)seed);
-    }
+      
+      // Handle cases where min = 0 or max = 0 for excluding zeros
+      if (exclude_zero) {
+        min = (min == 0.0) ? min + 1: min;
+        range = (max == 0.0) ? range - 1: range; 
+      }
+  }
 
 
   /// Compute random value and update RNG state
-  Element operator()() const {
+  Element operator()() {
+
+    // Sample from NaN distribution.
+    if constexpr (std::numeric_limits<Element>::has_quiet_NaN) {
+      if (pnan > 0 && bernoulli_dist(bernoulli_rnd)) {
+        return Element(NAN);
+      }
+    }
 
     double rnd = double(std::rand()) / double(RAND_MAX);
 
@@ -566,12 +637,20 @@ struct RandomUniformFunc {
     // Random values are cast to integer after scaling by a power of two to facilitate error
     // testing
     Element result;
-    
     if (int_scale >= 0) {
-      rnd = double(int64_t(rnd * double(1 << int_scale))) / double(1 << int_scale);
+      rnd = double(std::llround(rnd * double(1 << int_scale))) / double(1 << int_scale);
       result = static_cast<Element>(Real(rnd));
     }
     else {
+      result = static_cast<Element>(Real(rnd));
+    }
+
+    if (exclude_zero && result == Element(0)) {
+      if (rnd > 0.0) {
+        rnd = std::min(min + range, rnd + 1.0);
+      } else {
+        rnd = std::max(min, rnd - 1.0);
+      }
       result = static_cast<Element>(Real(rnd));
     }
 
@@ -590,6 +669,15 @@ struct RandomUniformFunc<complex<Element> > {
   double min;
   int int_scale;
 
+  double pnan;
+private:
+  using engine_type = std::mt19937;
+public:
+  engine_type bernoulli_rnd;
+  std::bernoulli_distribution bernoulli_dist;
+
+  bool exclude_zero;
+
   //
   // Methods
   //
@@ -598,15 +686,33 @@ struct RandomUniformFunc<complex<Element> > {
     uint64_t seed_ = 0, 
     double max = 1,
     double min_ = 0,
-    int int_scale_ = -1
+    int int_scale_ = -1,
+    double pnan_ = 0,
+    bool exclude_zero_ = false
   ):
-    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_) {
+    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_), pnan(pnan_)
+    , bernoulli_rnd{static_cast<engine_type::result_type>(seed_)}
+    , bernoulli_dist(pnan_)
+    , exclude_zero(exclude_zero_) {
       std::srand((unsigned)seed);
-    }
+
+      // Handle cases where min = 0 or max = 0 for excluding zeros
+      if (exclude_zero) {
+        min = (min == 0.0) ? min + 1: min;
+        range = (max == 0.0) ? range - 1: range; 
+      }
+  }
 
 
   /// Compute random value and update RNG state
-  complex<Element> operator()() const {
+  complex<Element> operator()() {
+
+    // Sample from NaN distribution.
+    if constexpr (std::numeric_limits<Element>::has_quiet_NaN) {
+      if (pnan > 0 && bernoulli_dist(bernoulli_rnd)) {
+        return Element(NAN);
+      }
+    }
 
     Element reals[2];
 
@@ -619,12 +725,25 @@ struct RandomUniformFunc<complex<Element> > {
       // testing
       
       if (int_scale >= 0) {
-        rnd = double(int(rnd * double(1 << int_scale)));
+        rnd = double(std::llround(rnd * double(1 << int_scale)));
         reals[i] = from_real<Element>(Real(rnd / double(1 << int_scale)));
       }
       else {
         reals[i] = from_real<Element>(Real(rnd));
       }
+
+      if (exclude_zero && 
+          i == 0 &&
+          reals[0] == from_real<Element>(0.0)) {
+
+        if (rnd > 0.0) {
+          rnd = std::min(min + range, rnd + 1.0);
+        } else {
+          rnd = std::max(min, rnd - 1.0);
+        }
+        reals[0] = from_real<Element>(Real(rnd));
+      }
+
     }
 
     return complex<Element>(reals[0], reals[1]);
@@ -642,6 +761,13 @@ struct RandomUniformFunc<Quaternion<Element> > {
   double min;
   int int_scale;
 
+  double pnan;
+private:
+  using engine_type = std::mt19937;
+public:
+  engine_type bernoulli_rnd;
+  std::bernoulli_distribution bernoulli_dist;
+
   //
   // Methods
   //
@@ -650,15 +776,26 @@ struct RandomUniformFunc<Quaternion<Element> > {
     uint64_t seed_ = 0,
     double max = 1,
     double min_ = 0,
-    int int_scale_ = -1
+    int int_scale_ = -1,
+    double pnan_ = 0
   ):
-    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_) {
-      std::srand((unsigned)seed);
-    }
+    seed(seed_), range(max - min_), min(min_), int_scale(int_scale_), pnan(pnan_),
+    bernoulli_rnd{static_cast<engine_type::result_type>(seed_)},
+    bernoulli_dist(pnan_)
+  {
+    std::srand((unsigned)seed);
+  }
 
 
   /// Compute random value and update RNG state
-  Quaternion<Element> operator()() const {
+  Quaternion<Element> operator()() {
+
+    // Sample from NaN distribution.
+    if constexpr (std::numeric_limits<Element>::has_quiet_NaN) {
+      if (pnan > 0 && bernoulli_dist(bernoulli_rnd)) {
+        return Element(NAN);
+      }
+    }
 
     Element reals[4];
 
@@ -671,7 +808,7 @@ struct RandomUniformFunc<Quaternion<Element> > {
       // testing
 
       if (int_scale >= 0) {
-        rnd = double(int(rnd * double(1 << int_scale)));
+        rnd = double(std::llround(rnd * double(1 << int_scale)));
         reals[i] = from_real<Element>(Real(rnd / double(1 << int_scale)));
       }
       else {
@@ -712,7 +849,7 @@ struct TensorFillRandomUniformFunc {
   }
 
   /// Compute random value and update RNG state
-  void operator()(Coord<Layout::kRank> const &coord) const {
+  void operator()(Coord<Layout::kRank> const &coord) {
 
     view.at(coord) = func();
   }
@@ -749,7 +886,7 @@ struct TensorFillSymmetricRandomUniformFunc {
   }
 
   /// Compute random value and update RNG state
-  void operator()(Coord<Layout::kRank> const &coord) const {
+  void operator()(Coord<Layout::kRank> const &coord) {
     // Fill half of matrix based on FillMode
     if (Layout::kRank == 2 && 
         fill_mode == cutlass::FillMode::kLower &&
@@ -796,7 +933,7 @@ struct TensorFillPadDiagonalRandomUniformFunc {
   }
 
   /// Compute random value and update RNG state
-  void operator()(Coord<Layout::kRank> const &coord) const {
+  void operator()(Coord<Layout::kRank> const &coord) {
     // Fill half of matrix based on FillMode
     if (Layout::kRank == 2 && 
         (fill_mode == cutlass::FillMode::kLower) &&
@@ -825,10 +962,12 @@ void TensorFillRandomUniform(
   uint64_t seed,                          ///< seed for RNG
   double max = 1,                         ///< upper bound of distribution
   double min = 0,                         ///< lower bound for distribution
-  int bits = -1) {                        ///< If non-negative, specifies number of fractional bits that 
+  int bits = -1,                          ///< If non-negative, specifies number of fractional bits that 
                                           ///  are not truncated to zero. Permits reducing precision of
-                                          ///  data.                 
-  detail::RandomUniformFunc<Element> random_func(seed, max, min, bits);
+                                          ///  data.
+  double pnan = 0,                        ///< Percentage of NaN elements.
+  bool exclude_zero = false) {            ///< Exclude zero from tensor init  
+  detail::RandomUniformFunc<Element> random_func(seed, max, min, bits, pnan, exclude_zero);
 
   detail::TensorFillRandomUniformFunc<Element, Layout> func(
     dst,
@@ -850,12 +989,14 @@ void TensorFillRandomUniform(
   uint64_t seed,                                       ///< seed for RNG
   double max = 1,                                      ///< upper bound of distribution
   double min = 0,                                      ///< lower bound for distribution
-  int bits = -1) {                                     ///< If non-negative, specifies number of fractional bits that
+  int bits = -1,                                       ///< If non-negative, specifies number of fractional bits that
                                                        ///  are not truncated to zero. Permits reducing precision of
                                                        ///  data.
+  double pnan = 0,                                     ///< Percentage of NaN elements.
+  bool exclude_zero = false) {                         ///< Exclude zero from tensor init 
 
-  TensorFillRandomUniform(dst.view_real(), seed, max, min, bits);
-  TensorFillRandomUniform(dst.view_imag(), ~seed, max, min, bits);
+  TensorFillRandomUniform(dst.view_real(), seed, max, min, bits, pnan, exclude_zero);
+  TensorFillRandomUniform(dst.view_imag(), ~seed, max, min, bits, pnan, exclude_zero);
 }
 
 
@@ -948,6 +1089,20 @@ void TensorFillPadDiagonalRandomUniform(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Fills a tensor with a uniform value
+template <
+  typename Element                        ///< Element type
+>
+void BlockFill(
+  Element *ptr,
+  size_t capacity,
+  Element val
+  ) {                                       
+  for (size_t i = 0; i < capacity; ++i) {
+    ReferenceFactory<Element>::get(ptr, i) = val;
+  }
+}
+
 /// Fills a tensor with random values with a uniform random distribution.
 template <
   typename Element                        ///< Element type
@@ -958,10 +1113,11 @@ void BlockFillRandomUniform(
   uint64_t seed,                          ///< seed for RNG
   double max = 1,                         ///< upper bound of distribution
   double min = 0,                         ///< lower bound for distribution
-  int bits = -1) {                        ///< If non-negative, specifies number of fractional bits that 
+  int bits = -1,                          ///< If non-negative, specifies number of fractional bits that 
                                           ///  are not truncated to zero. Permits reducing precision of
-                                          ///  data.                 
-  detail::RandomUniformFunc<Element> random_func(seed, max, min, bits);
+                                          ///  data.
+  double pnan = 0) {                      ///< Percentage of NaN elements.
+  detail::RandomUniformFunc<Element> random_func(seed, max, min, bits, pnan);
 
   for (size_t i = 0; i < capacity; ++i) {
     ReferenceFactory<Element>::get(ptr, i) = random_func();
@@ -1245,7 +1401,11 @@ template <
 void TensorFillRandom(
   TensorView<Element, Layout> view,       ///< destination tensor
   uint64_t seed,
-  Distribution dist) {
+  Distribution dist,
+  bool exclude_zero = false               ///< If true, excludes 0.
+                                          ///  Note that setting this flag will result in more 1's,
+                                          ///  as we use a simple mechanism to replace 0's by adding/subtracting 1's.
+) {
 
   using Real = typename RealType<Element>::Type;
 
@@ -1253,16 +1413,20 @@ void TensorFillRandom(
     TensorFillRandomGaussian(
       view,
       seed,
-      static_cast<Real>(dist.gaussian.mean),
-      static_cast<Real>(dist.gaussian.stddev),
-      dist.int_scale);
+      dist.gaussian.mean,
+      dist.gaussian.stddev,
+      dist.int_scale,
+      dist.gaussian.pnz,
+      exclude_zero);
   } else if (dist.kind == Distribution::Uniform) {
     TensorFillRandomUniform(
       view,
       seed,
-      static_cast<Real>(dist.uniform.max),
-      static_cast<Real>(dist.uniform.min),
-      dist.int_scale);
+      dist.uniform.max,
+      dist.uniform.min,
+      dist.int_scale,
+      dist.uniform.pnan,
+      exclude_zero);
   }
 }
 
@@ -1340,7 +1504,8 @@ void BlockFillRandom(
       seed, 
       dist.uniform.max,
       dist.uniform.min, 
-      dist.int_scale);
+      dist.int_scale,
+      dist.uniform.pnan);
   }
 }
 
@@ -1368,8 +1533,12 @@ struct RandomSparseMetaFunc {
       std::srand((unsigned)seed);
       if (MetaSizeInBits_ == 2) {
         range = 6;
-      } else if (MetaSizeInBits_ == 4) {
+      }
+      else if (MetaSizeInBits_ == 4) {
         range = 2;
+      }
+      else {
+        throw std::invalid_argument("Invalid MetaSizeInBits");
       }
     }
 

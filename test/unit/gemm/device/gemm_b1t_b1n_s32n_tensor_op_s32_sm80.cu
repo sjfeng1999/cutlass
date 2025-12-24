@@ -1,5 +1,5 @@
 /**************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -46,7 +46,8 @@
 
 #include "testbed.h"
 
-#if defined(CUTLASS_ARCH_MMA_SM80_SUPPORTED)
+#if defined(CUTLASS_ARCH_MMA_B1_AND_SM80_ENABLED)
+
 ////////////////////////////////////////////////////////////////////////////////
 
 TEST(SM80_Device_Gemm_b1t_b1n_s32n_tensor_op_s32, 128x256x1024_64x64x1024) {
@@ -370,7 +371,11 @@ TEST(SM80_Device_Gemm_b1t_b1n_s32n_tensor_op_s32, 64x64x512_32x32x512) {
   EXPECT_TRUE(test::gemm::device::TestAllGemmBasic<Gemm>());
 }
 
+#endif // defined(CUTLASS_ARCH_MMA_B1_AND_SM80_ENABLED)
+
 ////////////////////////////////////////////////////////////////////////////////
+
+#if defined(CUTLASS_ARCH_MMA_B1_XOR_SM80_ENABLED)
 
 TEST(SM80_Device_Gemm_XOR_b1t_b1n_s32n_tensor_op_s32, 128x256x1024_64x64x1024) {
   using ElementOutput = int32_t;
@@ -694,6 +699,6 @@ TEST(SM80_Device_Gemm_XOR_b1t_b1n_s32n_tensor_op_s32, 64x64x512_32x32x512) {
   EXPECT_TRUE(test::gemm::device::TestAllGemmBasic<Gemm>());
 }
 
-////////////////////////////////////////////////////////////////////////////////
+#endif // defined(CUTLASS_ARCH_MMA_B1_XOR_SM80_ENABLED)
 
-#endif  // #if defined(CUTLASS_ARCH_MMA_SM80_SUPPORTED)
+////////////////////////////////////////////////////////////////////////////////

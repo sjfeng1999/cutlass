@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -167,58 +167,39 @@ public:
     // Data members
     //
 
-    GemmCoord *problem_sizes0;
-    GemmCoord *problem_sizes1;
+    GemmCoord *problem_sizes0{nullptr};
+    GemmCoord *problem_sizes1{nullptr};
 
-    int problem_count;
-    int threadblock_count;
+    int problem_count{0};
+    int threadblock_count{0};
 
-    ElementQ ** ptr_Q;
-    ElementK ** ptr_K;
-    ElementP ** ptr_P;
-    ElementV ** ptr_V;
-    ElementO ** ptr_O;
-    ElementOAccum ** ptr_O_accum;
+    ElementQ ** ptr_Q{nullptr};
+    ElementK ** ptr_K{nullptr};
+    ElementP ** ptr_P{nullptr};
+    ElementV ** ptr_V{nullptr};
+    ElementO ** ptr_O{nullptr};
+    ElementOAccum ** ptr_O_accum{nullptr};
 
-    typename LayoutQ::Stride::LongIndex *ldq;
-    typename LayoutK::Stride::LongIndex *ldk;
-    typename LayoutP::Stride::LongIndex *ldv;
-    typename LayoutO::Stride::LongIndex *ldo;
-
-    // Scale
-    ElementAccumulator scale;
+    typename LayoutQ::Stride::LongIndex *ldq{nullptr};
+    typename LayoutK::Stride::LongIndex *ldk{nullptr};
+    typename LayoutP::Stride::LongIndex *ldv{nullptr};
+    typename LayoutO::Stride::LongIndex *ldo{nullptr};
 
     // Whether causal masking is to be performed
-    bool causal;
+    bool causal{false};
+
+    // Scale
+    ElementAccumulator scale{0};
 
     // Only used by device-level operator
-    GemmCoord *host_problem_sizes;
+    GemmCoord *host_problem_sizes{nullptr};
 
     //
     // Methods
     //
-
-    /// Default ctor
-    CUTLASS_HOST_DEVICE
-    Arguments():
-      problem_count(0),
-      threadblock_count(0),
-      ptr_Q(nullptr),
-      ptr_K(nullptr),
-      ptr_P(nullptr),
-      ptr_V(nullptr),
-      ptr_O(nullptr),
-      ptr_O_accum(nullptr),
-      ldq(nullptr),
-      ldk(nullptr),
-      ldv(nullptr),
-      ldo(nullptr),
-      scale(0),
-      causal(false),
-      host_problem_sizes(nullptr)
-    {
-
-    }
+  
+      /// Default ctor
+    Arguments() = default;
 
     /// Ctor
     CUTLASS_HOST_DEVICE
@@ -569,7 +550,7 @@ public:
 
         auto prologueV = [&](int blockN) {
           typename MM1::Mma::IteratorB iterator_V(
-              typename MM1::IteratorB::Params{MM1::LayoutB(params.ldv[problem_idx])},
+              typename MM1::IteratorB::Params{typename MM1::LayoutB(params.ldv[problem_idx])},
               params.ptr_V[problem_idx] + iter_key_start * params.ldv[problem_idx],
               {problem_size_1_k, problem_size_1_n},
               thread_id(),
@@ -738,7 +719,7 @@ public:
           }
 
           typename MM1::Mma::IteratorB iterator_V(
-            typename MM1::IteratorB::Params{MM1::LayoutB(params.ldv[problem_idx])},
+            typename MM1::IteratorB::Params{typename MM1::LayoutB(params.ldv[problem_idx])},
             params.ptr_V[problem_idx] + iter_key_start * params.ldv[problem_idx],
             {problem_size_1_k, problem_size_1_n},
             thread_id(),
@@ -780,15 +761,15 @@ public:
                         using EpilogueOutputOp = typename cutlass::epilogue::
                             thread::MemoryEfficientAttentionNormalize<
                                 typename cutlass::platform::conditional<
-                                    kIsLast,
+                                    kIsLast::value,
                                     output_t,
                                     output_accum_t>::type,
                                 output_accum_t,
                                 DefaultOp::kCount,
                                 typename DefaultOp::ElementAccumulator,
                                 output_accum_t,
-                                kIsFirst,
-                                kIsLast,
+                                kIsFirst::value,
+                                kIsLast::value,
                                 cutlass::Array<ElementCompute, kQueriesPerBlock>>;
                         using Epilogue = typename cutlass::epilogue::threadblock::
                             EpiloguePipelined<
@@ -796,7 +777,7 @@ public:
                                 typename MM1::Mma::Operator,
                                 DefaultEpilogue::kPartitionsK,
                                 typename cutlass::platform::conditional<
-                                    kIsLast,
+                                    kIsLast::value,
                                     typename MM1::OutputTileIterator,
                                     typename MM1::OutputTileIteratorAccum>::type,
                                 typename DefaultEpilogue::
@@ -814,7 +795,7 @@ public:
                         int col = blockN * MM1::Mma::Shape::kN;
                         auto source_iter = createOutputAccumIter(col);
                         auto dest_iter = gemm_kernel_utils::call_conditional<
-                            kIsLast,
+                            kIsLast::value,
                             decltype(createOutputIter),
                             decltype(createOutputAccumIter)>::
                             apply(createOutputIter, createOutputAccumIter, col);
@@ -836,8 +817,8 @@ public:
       }
 
       if (kKeepOutputInRF) {
-        const bool kIsFirst = true;
-        const bool kIsLast = true;
+        constexpr bool kIsFirst = true;
+        constexpr bool kIsLast = true;
         using DefaultEpilogue = typename MM1::DefaultEpilogue;
         using DefaultOp = typename MM1::DefaultConfig::EpilogueOutputOp;
         using ElementCompute = typename DefaultOp::ElementCompute;

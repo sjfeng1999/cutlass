@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -113,7 +113,7 @@ struct MultistageTestbed {
     // Determine SMEM requirements and waive if not satisfied
     //
 
-    int smem_size = int(sizeof(typename Gemm::GemmKernel::SharedStorage));
+    size_t smem_size = sizeof(typename Gemm::GemmKernel::SharedStorage);
 
     cudaDeviceProp properties;
     int device_idx;
@@ -141,10 +141,10 @@ struct MultistageTestbed {
            ElementCompute alpha = ElementCompute(1),
            ElementCompute beta = ElementCompute(0)) {
 
-		// Waives test if CUDA device is insufficient
-		if (!sufficient()) {
-			return true;
-		}
+    // Waives test if CUDA device is insufficient
+    if (!sufficient()) {
+    	return true;
+    }
 
     //
     // Allocate the GEMM workspace

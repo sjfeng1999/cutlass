@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,6 @@
 #include "cutlass/barrier.h"
 #include "cutlass/block_striped.h"
 #include "cutlass/fast_math.h"
-#include "cutlass/workspace.hpp"
 #include "cutlass/gemm/kernel/sm90_tile_scheduler.hpp"
 #include "cutlass/kernel_hardware_info.hpp"
 #include "cute/layout.hpp"
@@ -54,41 +53,104 @@ class PersistentTileSchedulerSm90StreamK {
 
 private:
   using UnderlyingScheduler = PersistentTileSchedulerSm90;
-public:
-  using RasterOrder = UnderlyingScheduler::RasterOrder;
+
 private:
   using UnderlyingArguments = typename UnderlyingScheduler::Arguments;
   using UnderlyingParams = typename UnderlyingScheduler::Params;
 
+  dim3 block_id_in_cluster_;
   uint64_t current_work_linear_idx_ = 0;
+  uint32_t unit_iter_start_ = 0;
 
-  // Minimum number of k iterations that can be assigned to a stream-K unit
-  static constexpr uint32_t min_iters_per_sk_unit_ = 2;
+public:
+
+  using RasterOrder = UnderlyingScheduler::RasterOrder;
+  using RasterOrderOptions = UnderlyingScheduler::RasterOrderOptions;
+  static constexpr bool IsDynamicPersistent = false;
+
+  using Pipeline = PipelineEmpty;
+  using PipelineStorage = typename Pipeline::SharedStorage;
+  using ThrottlePipeline = PipelineEmpty;
+  using ThrottlePipelineStorage = typename ThrottlePipeline::SharedStorage;
+  struct CLCResponse {};
+
+  class SharedStorage {
+  public:
+    CUTLASS_DEVICE PipelineStorage pipeline() { return PipelineStorage{}; }
+    CUTLASS_DEVICE ThrottlePipelineStorage throttle_pipeline() { return ThrottlePipelineStorage{}; }
+    CUTLASS_DEVICE CLCResponse* data() { return nullptr; }
+  };
 
   // Use a dummy barrier manager to simply get the type used to store the barrier
   using BarrierType = typename NamedBarrierManager<1>::T;
 
-public:
+  using Params = PersistentTileSchedulerSm90StreamKParams;
+  using ReductionMode = Params::ReductionMode;
+  using DecompositionMode = Params::DecompositionMode;
 
   struct WorkTileInfo {
     int32_t M_idx = 0;
     int32_t N_idx = 0;
     int32_t K_idx = 0;
     int32_t L_idx = 0;
-    bool is_valid_tile = false;
 
-    // Number of splits to be used in computing the {L_idx, M_idx, N_idx} output tile.
-    // Splits = 1 indicates that this is a data-parallel block.
-    uint32_t splits = 1;
-
-    // Number of k iterations to compute for the current tile
+    // Number of k tiles to compute for this unit of work. For stream-K, this
+    // can indicate the number of K tiles across multiple output tiles.
     uint32_t k_tile_count = 0;
 
-    // Number of k iterations remaining for the work unit as a whole
+    // Number of k tiles remaining for the work unit as a whole
     uint32_t k_tile_remaining = 0;
 
     // Whether this unit of work is the final split for the given tile
-    bool is_final_split = true;
+    bool is_separate_reduction = false;
+
+    CUTLASS_HOST_DEVICE
+    bool
+    is_valid() const {
+      // A work tile that computes no K tiles is invalid unless it is a separate-reduction work tile
+      // (which only performs reduction and epilogue)
+      return k_tile_count > 0 || is_separate_reduction;
+    }
+
+    CUTLASS_HOST_DEVICE
+    bool
+    is_reduction_unit() const {
+      return is_separate_reduction;
+    }
+
+    CUTLASS_HOST_DEVICE
+    int32_t
+    reduction_subtile_idx() const {
+      // For separate reduction units, the K_idx of the work tile is unused.
+      // Therefore, we override it to contain the subtile of that the reduction
+      // unit operates on.
+      return is_reduction_unit() ? K_idx : -1;
+    }
+
+    CUTLASS_HOST_DEVICE
+    void
+    setup_separate_reduction(int32_t epilogue_subtile_idx) {
+      // Set the epilogue subtile in the K_idx, since this is otherwise unused
+      // by separate reduction units.
+      K_idx = epilogue_subtile_idx;
+
+      is_separate_reduction = true;
+      k_tile_count = 0;
+      // Clean up remaining k tiles
+      k_tile_remaining = 0;
+    }
+
+    CUTLASS_HOST_DEVICE
+    static WorkTileInfo
+    invalid_work_tile() {
+      return {-1, -1, -1, -1, 0};
+    }
+
+    CUTLASS_HOST_DEVICE
+    bool
+    is_final_split(uint32_t k_tiles_per_output_tile) const {
+      return (K_idx + k_tile_count) == k_tiles_per_output_tile;
+    }
   };
 
   struct Arguments {
@@ -96,71 +158,47 @@ public:
     Arguments() = default;
     Arguments(Arguments const&) = default;
     Arguments(Arguments&&) = default;
-    
+
     CUTLASS_HOST_DEVICE
-    Arguments& 
+    Arguments&
     operator=(Arguments const& args) {
       splits = args.splits;
-      return *this;
-    }
-   
-    CUTLASS_HOST_DEVICE
-    Arguments& 
-    operator=(Arguments&& args) noexcept {
-      splits = args.splits;
+      max_swizzle_size = args.max_swizzle_size;
+      raster_order = args.raster_order;
+      reduction_mode = args.reduction_mode;
+      decomposition_mode = args.decomposition_mode;
       return *this;
     }
 
-    CUTLASS_HOST_DEVICE 
+    CUTLASS_HOST_DEVICE
+    Arguments&
+    operator=(Arguments&& args) noexcept {
+      splits = args.splits;
+      max_swizzle_size = args.max_swizzle_size;
+      raster_order = args.raster_order;
+      reduction_mode = args.reduction_mode;
+      decomposition_mode = args.decomposition_mode;
+      return *this;
+    }
+
+    CUTLASS_HOST_DEVICE
     Arguments(int splits_) : splits(splits_) {}
+
+    CUTLASS_HOST_DEVICE
+    Arguments(int splits_, int max_swizzle_size_, RasterOrderOptions raster_order_, DecompositionMode decomposition_mode_) :
+      splits(splits_),
+      max_swizzle_size(max_swizzle_size_),
+      raster_order(raster_order_),
+      decomposition_mode(decomposition_mode_) {}
 
     // The splitting factor to be used in a split-K decomposition of the problem.
     // If this is set to a value greater than 1, stream-K decomposition logic
     // is bypassed in favor of a split-K decomposition.
     int splits = 1;
-    const int max_swizzle_size = 1;
-  };
-
-  struct Params {
-    FastDivmodU64 divmod_cluster_shape_major_{};
-    FastDivmodU64 divmod_cluster_shape_minor_{};
-    FastDivmodU64 divmod_batch_{};
-    FastDivmodU64 divmod_k_{};
-    FastDivmodU64 divmod_cluster_blk_major_{};
-
-    int32_t log_swizzle_size_ = 0;
-
-
-    uint64_t units_per_problem_ = 0;
-    RasterOrder raster_order_ = RasterOrder::AlongN;
-    ClusterShape cluster_shape_{};
-
-    // The splitting factor to be used in a split-K decomposition of the problem.
-    // If this is set to a value greater than 1, stream-K decomposition logic
-    // is bypassed in favor of a split-K decomposition.
-    uint32_t splits_ = 1;
-
-    // Number of tiled k iterations required to compute a single output tile.
-    uint32_t k_tiles_per_output_tile_ = 0;
-
-    // Number of stream-K or split-K work units that compute an extra k iteration.
-    // This is done to handle residuals in dividing up the k iteration space.
-    // For stream-K, since the actual assignment of work to stream-K units will be done
-    // at the granularity of a cluster, we store only the number of big clusters.
-    uint32_t big_units_ = 0;
-
-    // Workspace for holding partial accumulators to be reduced across stream-K/split-K units
-    void* reduction_workspace_ = nullptr;
-
-    // Number of tiles covered by stream-K work units
-    uint32_t sk_tiles_ = 0;
-
-    // Number of work units computing stream-K tiles
-    uint32_t sk_units_ = 0;
-
-    // Number of tiled k iterations computed by each stream-K work unit. This
-    // can potentially cover more than one output tile.
-    uint32_t k_tiles_per_sk_unit_ = 0;
+    int max_swizzle_size = 1;
+    RasterOrderOptions raster_order = RasterOrderOptions::Heuristic;
+    ReductionMode reduction_mode = ReductionMode::Deterministic;
+    DecompositionMode decomposition_mode = DecompositionMode::Heuristic;
   };
 
   // Sink scheduler params as a member
@@ -173,197 +211,84 @@ public:
   template <class ProblemShape>
   static Params
   to_underlying_arguments(
-    ProblemShape problem_shape_mnkl,
-    TileShape tile_shape,
-    ClusterShape cluster_shape,
-    KernelHardwareInfo const& hw_info,
-    Arguments const& args,
-    void* workspace) {
+      ProblemShape problem_shape,
+      TileShape tile_shape,
+      ClusterShape cluster_shape,
+      KernelHardwareInfo const& hw_info,
+      Arguments const& args,
+      void* workspace,
+      const uint32_t epilogue_subtile = 1,
+      [[maybe_unused]] uint32_t ktile_start_alignment_count = 1u) {
 
     static_assert(cute::is_static<TileShape>::value);
     static_assert(cute::is_static<ClusterShape>::value);
 
-    // Round up to nearest multiple of cluster dim along each mode
-    auto [problem_blocks_m, problem_blocks_n, problem_blocks_l] = get_tiled_cta_shape_mnl(
-        problem_shape_mnkl, tile_shape, cluster_shape);
+    auto problem_shape_mnkl = cute::append<4>(problem_shape, cute::Int<1>{});
+    dim3 problem_blocks = get_tiled_cta_shape_mnl(problem_shape_mnkl, tile_shape, cluster_shape);
+    uint32_t k_tile_per_output_tile = cute::size(cute::ceil_div(cute::shape<2>(problem_shape_mnkl), cute::shape<2>(TileShape{})));
 
-    uint64_t output_tiles = problem_blocks_m * problem_blocks_n * problem_blocks_l;
+    Params params;
+    params.initialize(
+      problem_blocks,
+      k_tile_per_output_tile,
+      to_gemm_coord(cluster_shape),
+      hw_info,
+      args.splits,
+      args.max_swizzle_size,
+      args.raster_order,
+      args.reduction_mode,
+      args.decomposition_mode,
+      workspace,
+      epilogue_subtile
+    );
+    return params;
+  }
 
-    // Number of k tile iterations in each output tile
-    uint32_t k_tiles_per_output_tile = (cute::size<2>(problem_shape_mnkl) + cute::size<2>(tile_shape) - 1) /
-                               cute::size<2>(tile_shape);
-
-    UnderlyingArguments underlying_args;
-    underlying_args.max_swizzle_size = 1;
-    UnderlyingParams underlying_params = UnderlyingScheduler::to_underlying_arguments(
-      problem_shape_mnkl, tile_shape, cluster_shape, hw_info, underlying_args, workspace);
-
-    void* reduction_workspace = nullptr;
-
-    if (workspace != nullptr) {
-      // Reduction workspace is at the beginning of the workspace. Lock workspace follows.
-      reduction_workspace = workspace;
-    }
-
-    if (args.splits > 1) {
-      // Short circuit to basic split-K decomposition
-
-      // Don't split by more than the available number of SMs
-      auto splits = args.splits > hw_info.sm_count ? hw_info.sm_count : args.splits;
-
-      // Don't split by more than the K tile iterations
-      //
-      // splits is almost certainly nonnegative here (e.g., hw_info.sm_count,
-      // despite being an int, is a count), so it can safely be converted to unsigned
-      // in the comparison to avoid a signed-unsigned comparison warning-as-error.
-      splits = static_cast<decltype(k_tiles_per_output_tile)>(splits) > k_tiles_per_output_tile ? k_tiles_per_output_tile : splits;
-
-      return get_params_basic(
-        underlying_params, problem_blocks_m, problem_blocks_n, problem_blocks_l, cluster_shape,
-        splits, k_tiles_per_output_tile, reduction_workspace);
-    }
-
-    // Calculate the maximum number of blocks from clusters of shape cluster_shape that we
-    // can fit within sm_count SMs.
-    dim3 grid = get_grid_shape(problem_shape_mnkl, tile_shape, cluster_shape, hw_info, args);
-    uint64_t ctas_per_wave = grid.x * grid.y;
-
-    // The number of output tiles to be computed in stream-K and data-parallel fashion, respectively.
-    uint32_t sk_tiles = get_num_sk_tiles(output_tiles, ctas_per_wave, k_tiles_per_output_tile);
-    uint64_t dp_tiles = output_tiles - sk_tiles;
-
-    // Calculate the number of work units covering the data-parallel and stream-K tiles.
-    // A "work unit" is a single index in the linearized ID space used by the scheduler.
-    // We distinguish it from a "block," which is typically tied to a hardware unit
-    // (e.g., the callers into this scheduler will be persistent thread blocks).
-    // A work unit can encompass multiple output tiles worth of work (as will be the
-    // case for stream-K blocks).
-    // Since splitting is not required for data-parallel tiles, only one data-parallel unit
-    // is needed per data-parallel tile.
-    uint64_t dp_units = dp_tiles;
-
-    // Number of k iterations computed by the stream-K units as a whole
-    uint64_t k_tiles_sk_total = k_tiles_per_output_tile * sk_tiles;
-
-    // If there are stream-K tiles to compute and a sufficiently large number of k iterations
-    // across them, they will be covered by a single wave of persistent threadblocks. Thus, there
-    // will be as many work units as there are threadblocks in a single wave.
-    //
-    // When the total k iterations across stream-K tiles is too small to justify distributing
-    // across an entire wave of blocks, we instead distribute the iterations over a smaller
-    // set of blocks.
-
-    // Calculate the number of stream-K units that would be needed if each stream-K unit
-    // computed the minimum allowable k iterations. Truncate this to be in units of clusters.
-    uint64_t min_sized_sk_units = (k_tiles_sk_total / min_iters_per_sk_unit_);
-    min_sized_sk_units = (min_sized_sk_units / cute::size(cluster_shape)) * cute::size(cluster_shape);
-
-    uint64_t sk_units = min(ctas_per_wave, min_sized_sk_units);
-
-    if (sk_units == 0) {
-      // Short circuit to basic data-parallel decomposition
-      return get_params_basic(
-        underlying_params, problem_blocks_m, problem_blocks_n, problem_blocks_l, cluster_shape,
-        1, k_tiles_per_output_tile, reduction_workspace);
-    }
-
-    // If the number of stream-K units is a multiple of the number of stream-K tiles, then
-    // the problem can leverage a basic split-K decomposition for the stream-K tiles.
-    if (sk_tiles < sk_units && sk_units % sk_tiles == 0) {
-      // Short circuit to basic split-K decomposition
-      uint32_t sk_splits = static_cast<uint32_t>(sk_units / sk_tiles);
-      return get_params_basic(
-        underlying_params, problem_blocks_m, problem_blocks_n, problem_blocks_l, cluster_shape,
-        sk_splits, k_tiles_per_output_tile, reduction_workspace);
-    }
-
-    // Number of k iterations computed per stream-K units
-    uint64_t k_tiles_per_sk_unit = k_tiles_sk_total / sk_units;
-
-    // Number of stream-K units that need to compute extra iterations in order to cover
-    // the residual k iterations. This assumes that each such unit computes one additional
-    // iteration.
-    uint64_t sk_big_units = k_tiles_sk_total - (k_tiles_per_sk_unit * sk_units);
-
-    // The division below is guaranteed to be exact because sk_big_units is guaranteed
-    // to be a multiple of cluster_size (cute::size(cluster_shape)). This is useful because
-    // it allows us to use a block's linearized cluster ID  to determine whether it is
-    // a big block. The reasoning behind this guarnatee is explained as follows:
-    //     sk_big_units = k_tiles_sk_total - (k_tiles_per_sk_unit * sk_units);
-    //
-    // - k_tiles_sk_total is a multiple of cluster_size because it is the product
-    //   of number of tail tiles and the number of k iterations per tile. Because
-    //   both the number of output tiles and number of available SMs are rounded
-    //   to be multiples of cluster shape, the number of tail tiles
-    //   (output_tiles % avail_sms) is a multpile of cluster_size.
-    //
-    // - sk_units is a multiple of cluster_size because it is either blocks_per_wave
-    //   or 0, and blocks_per_wave is a multiple of the cluster_size due to the grid-planning
-    //   logic rounding to multiples of cluster dimensions
-    uint64_t sk_big_units_per_cluster = sk_big_units / cute::size(cluster_shape);
-
-    return {
-      underlying_params.divmod_cluster_shape_major_,
-      underlying_params.divmod_cluster_shape_minor_,
-      underlying_params.divmod_batch_,
-      FastDivmodU64(problem_blocks_m * problem_blocks_n),  // Static k-splitting divmod. Unused for stream-K.
-      underlying_params.divmod_cluster_blk_major_,
-      underlying_params.log_swizzle_size_,
-      static_cast<uint32_t>(dp_units + sk_units),
-      underlying_params.raster_order_,
-      cluster_shape,
-      1,                                                   // Static k-splitting factor. Unused for stream-K.
-      k_tiles_per_output_tile,
-      static_cast<uint32_t>(sk_big_units_per_cluster),
-      reduction_workspace,
-      sk_tiles,
-      static_cast<uint32_t>(sk_units),
-      static_cast<uint32_t>(k_tiles_per_sk_unit)
-    };
+  static bool
+  can_implement(Arguments const& args) {
+    // Split count > 1 is only valid for heuristic and split-K decomposition modes
+    return (args.splits == 1 ||
+            args.decomposition_mode == DecompositionMode::Heuristic ||
+            args.decomposition_mode == DecompositionMode::SplitK);
   }
 
   CUTLASS_HOST_DEVICE
   PersistentTileSchedulerSm90StreamK() { };
 
-  CUTLASS_HOST_DEVICE
-  PersistentTileSchedulerSm90StreamK(Params const& params_) : scheduler_params(params_) {
+  CUTLASS_DEVICE
+  PersistentTileSchedulerSm90StreamK(Params const& params_) : scheduler_params(params_), block_id_in_cluster_(cute::block_id_in_cluster()) {
     if (params_.raster_order_ == RasterOrder::AlongN) {
-      current_work_linear_idx_ = static_cast<uint64_t>(int(blockIdx.x) + (int(blockIdx.y) * int(gridDim.x)));
+      current_work_linear_idx_ = uint64_t(blockIdx.x) + uint64_t(blockIdx.y) * uint64_t(gridDim.x);
     }
     else {
-      current_work_linear_idx_ = static_cast<uint64_t>((int(blockIdx.x) * int(gridDim.y)) + int(blockIdx.y));
+      current_work_linear_idx_ = uint64_t(blockIdx.x) * uint64_t(gridDim.y) + uint64_t(blockIdx.y);
     }
+
   }
 
   CUTLASS_DEVICE
   WorkTileInfo
-  get_current_work() const {
-    return get_current_work_for_linear_idx(current_work_linear_idx_, scheduler_params);
+  get_current_work() {
+    return get_current_work_for_linear_idx(unit_iter_start_, current_work_linear_idx_, block_id_in_cluster_, scheduler_params);
   }
 
   CUTLASS_DEVICE
   static WorkTileInfo
-  get_current_work_for_linear_idx(uint64_t linear_idx, Params const& params) {
-    if (linear_idx >= params.units_per_problem_) {
+  get_current_work_for_linear_idx(uint32_t &unit_iter_start, uint64_t linear_idx, dim3 block_id_in_cluster, Params const& params) {
+    // The maximum number of work units is units_per_problem_ * splits_.
+    // The multiplication by splits_ is used for handling split-K, in which
+    // units_per_problem_ is equal to the total number of output tiles. To account
+    // for the fact that we have splits_ peers per output tile, we multiply this
+    // value by splits_. For stream-K, this multiplication ends up being a no-op
+    // because splits_ is set to 1 for stream-K.
+    if(linear_idx >= (params.units_per_problem_ * params.divmod_splits_.divisor + params.separate_reduction_units_)) {
       // Invalid work. Return an empty result.
-      return {0, 0, 0, 0, false, 0};
+      return WorkTileInfo::invalid_work_tile();
     }
 
-    // Determine whether this work unit is a data-parallel or stream-K work unit
-    bool is_stream_k_unit = linear_idx < params.sk_units_;
-
-    bool is_split_k = params.splits_ > 1;
-
-    if (is_split_k || !is_stream_k_unit) {
-      // Bypass the stream-K scheduling logic for basic data-parallel or split-K work
-      return set_non_stream_k_work(linear_idx, params, is_split_k);
-    }
-    else {
-      // This is a stream-K work unit
-      WorkTileInfo work_tile_info;
-      set_stream_k_work(params, linear_idx, work_tile_info, /*new_unit = */ true);
-      return work_tile_info;
-    }
+    WorkTileInfo work_tile_info;
+    assign_work(params, linear_idx, block_id_in_cluster, work_tile_info, unit_iter_start);
+    return work_tile_info;
   }
 
   // Returns whether the current work_tile_info passed in should continue to be used. This
@@ -374,13 +299,15 @@ public:
   bool
   continue_current_work(WorkTileInfo& work_tile_info) const {
     return continue_current_work_for_linear_idx(
-      current_work_linear_idx_, work_tile_info, scheduler_params);
+      current_work_linear_idx_, unit_iter_start_, block_id_in_cluster_, work_tile_info, scheduler_params);
   }
 
-  CUTLASS_DEVICE static
-  bool
+  CUTLASS_DEVICE
+  static bool
   continue_current_work_for_linear_idx(
     uint64_t linear_idx,
+    uint32_t unit_iter_start,
+    dim3 block_id_in_cluster,
     WorkTileInfo& work_tile_info,
     Params const& params) {
 
@@ -389,15 +316,33 @@ public:
     if (work_tile_info.k_tile_remaining == 0) {
       return false;
     }
-
-    set_stream_k_work(params, linear_idx, work_tile_info, /* new_unit = */ false);
-    return true;
+    fast_assign_work(unit_iter_start, params, linear_idx, block_id_in_cluster, work_tile_info);
+    return work_tile_info.is_valid();
   }
 
   CUTLASS_DEVICE
   void
   advance_to_next_work(uint32_t advance_count = 1) {
-    current_work_linear_idx_ += static_cast<uint64_t>(int(gridDim.x) * int(gridDim.y) * int(gridDim.z)) * advance_count;
+    current_work_linear_idx_ += uint64_t(gridDim.x) * uint64_t(gridDim.y) * uint64_t(gridDim.z) * uint64_t(advance_count);
+  }
+
+  CUTLASS_DEVICE
+  bool is_last_tile(WorkTileInfo work_tile_info, uint32_t advance_count = 1) const {
+     // Never pass this by reference; it needs a copy,
+    // because continue_current_work will modify it.
+    if (continue_current_work(work_tile_info)) {
+      return false;
+    }
+    // Create a copy to avoid unit_iter_start_ being modified
+    uint32_t unit_iter_start = unit_iter_start_;
+    return not get_current_work_for_linear_idx(
+        unit_iter_start,
+        current_work_linear_idx_ + (
+          uint64_t(gridDim.x) * uint64_t(gridDim.y) * uint64_t(gridDim.z) * uint64_t(advance_count)
+          ),
+        block_id_in_cluster_,
+        scheduler_params
+    ).is_valid();
   }
 
   // Given the inputs, computes the total number of output blocks this problem will compute over
@@ -414,31 +359,45 @@ public:
   CUTLASS_HOST_DEVICE static
   dim3
   get_grid_shape(
+    [[maybe_unused]] Params const& params,
     ProblemShape problem_shape,
     TileShape tile_shape,
     ClusterShape cluster_shape,
     KernelHardwareInfo hw_info,
     Arguments arguments) {
 
-    UnderlyingArguments underlying_args;
-    underlying_args.max_swizzle_size = 1;
-    // Call into the underlying get_grid_shape method, but do not allow the grid shape returned
-    // to be truncated based on the number of output tiles in the problem.
-    return UnderlyingScheduler::get_grid_shape(
-      problem_shape,
-      tile_shape,
-      cluster_shape,
+    auto problem_shape_mnkl = cute::append<4>(problem_shape, cute::Int<1>{});
+    dim3 problem_blocks = get_tiled_cta_shape_mnl(problem_shape_mnkl, tile_shape, cluster_shape);
+
+    return Params::get_grid_shape(
+      problem_blocks,
+      to_gemm_coord(cluster_shape),
       hw_info,
-      underlying_args,
-      /*truncate_by_problem_size=*/false);
+      arguments.max_swizzle_size,
+      arguments.raster_order
+    );
   }
 
   // Returns whether fixup is needed for `work_tile_info`.
   CUTLASS_HOST_DEVICE
   static bool
   requires_fixup(Params const& params, WorkTileInfo const& work_tile_info) {
-    // Fixup is not needed for data-parallel tiles
-    return work_tile_info.k_tile_count != params.k_tiles_per_output_tile_;
+    // Fixup is not needed for invalid or data-parallel tiles
+    return work_tile_info.is_valid() && work_tile_info.k_tile_count != params.divmod_tiles_per_output_tile_.divisor;
+  }
+
+  CUTLASS_HOST_DEVICE
+  static bool
+  requires_separate_reduction(Params const& params) {
+    return params.requires_separate_reduction();
+  }
+
+  // When the work tile is not special for reduction, it's valid. Otherwise need to skip
+  // global loading that producer warpgroup do, also math computation that consumer warpgroup do.
+  CUTLASS_DEVICE
+  static bool
+  valid_warpgroup_in_work_tile(WorkTileInfo const& work_tile_info) {
+    return !work_tile_info.is_reduction_unit();
   }
 
   // Performs the reduction across splits for a given output tile.
@@ -451,7 +410,9 @@ public:
     FrgTensorC& accumulators,
     uint32_t num_barriers,
     uint32_t barrier_idx) {
-    using BarrierManager = NamedBarrierManager<NumThreadsPerWarpGroup, 2>;
+    static constexpr uint32_t Offset = static_cast<int>(cutlass::arch::ReservedNamedBarriers::StreamkBarrier0);
+    static constexpr uint32_t MaxNumNamedBarriers = 2;
+    using BarrierManager = NamedBarrierManager<NumThreadsPerWarpGroup, Offset, MaxNumNamedBarriers>;
     return fixup_helper<FrgTensorC, BarrierManager>(
       params, work_tile_info, accumulators, num_barriers, barrier_idx);
   }
@@ -465,24 +426,42 @@ public:
     WorkTileInfo const& work_tile_info,
     FrgTensorC& accumulators,
     uint32_t num_barriers,
-    uint32_t barrier_idx) {
+    uint32_t barrier_idx,
+    uint32_t num_accumulator_mtxs = 1,
+    uint32_t idx_accumulator_mtxs = 0) {
 
     using ElementAccumulator = typename FrgTensorC::value_type;
 
     if (!requires_fixup(params, work_tile_info)) {
       return;
     }
-
-    auto tile_idx = output_tile_index(params, work_tile_info);
+    uint64_t tile_idx = output_tile_index(params, work_tile_info);
 
     // Index of the lock on which to wait
-    auto lock_idx = (tile_idx * num_barriers) + barrier_idx;
+    uint64_t lock_idx = (tile_idx * num_barriers) + barrier_idx;
+
+    uint64_t reduction_tile_idx = tile_idx;
+    uint64_t num_peers = 0;
+    uint64_t reduction_peer_offset = 0;
+    if (
+      params.requires_separate_reduction()
+      ) {
+      // If separate reduction is to be performed, each stream-K unit writes its partials
+      // to a separate portion of the workspace. There are as many of these portions as there
+      // are peers for a given output tile, so we multiply the tile index by the maximum peer count.
+      auto [first_peer_id, my_peer_id, last_peer_id] = tile_peer_range(params, tile_idx, work_tile_info);
+      auto peer_id_in_output_tile = my_peer_id - first_peer_id;
+      num_peers = last_peer_id - first_peer_id + 1;
+      reduction_tile_idx = tile_idx * Params::max_peers_per_tile(params.sk_units_, params.sk_tiles_);
+      reduction_peer_offset = peer_id_in_output_tile * cute::size<0>(TileShape{}) * cute::size<1>(TileShape{}) * num_accumulator_mtxs;
+    }
 
     // Reductions use BlockStripedReduce with a width of BarrierManager::ThreadCount under the hood.
     // Thus, the start of the reduction space is the same across all threads in a warp group.
-    int reduction_offset =
-      (cute::size<0>(TileShape{}) * cute::size<1>(TileShape{}) * tile_idx) +
-      (size(accumulators) * barrier_idx * BarrierManager::ThreadCount);
+    uint64_t reduction_offset_base = (static_cast<uint64_t>(cute::size<0>(TileShape{})) * static_cast<uint64_t>(cute::size<1>(TileShape{})) * reduction_tile_idx * num_accumulator_mtxs) +
+      (static_cast<uint64_t>(size(accumulators)) * barrier_idx * BarrierManager::ThreadCount * num_accumulator_mtxs)
+      + static_cast<uint64_t>(size(accumulators)) * BarrierManager::ThreadCount * idx_accumulator_mtxs;
+    uint64_t reduction_offset = reduction_offset_base + reduction_peer_offset;
 
     ElementAccumulator* group_reduction_workspace = reinterpret_cast<ElementAccumulator*>(params.reduction_workspace_) + reduction_offset;
 
@@ -490,36 +469,76 @@ public:
     using BlockStripedReduceT = BlockStripedReduce<BarrierManager::ThreadCount, AccumulatorArrayT>;
 
     AccumulatorArrayT* reduction_workspace_array = reinterpret_cast<AccumulatorArrayT*>(group_reduction_workspace);
-    AccumulatorArrayT* accumulator_array = reinterpret_cast<AccumulatorArrayT*>(&accumulators);
+    AccumulatorArrayT* accumulator_array = reinterpret_cast<AccumulatorArrayT*>(accumulators.data());
 
-    int barrier_group_thread_idx = threadIdx.x % BarrierManager::ThreadCount;
+    uint32_t barrier_group_thread_idx = threadIdx.x % BarrierManager::ThreadCount;
 
     // The number of tiles for which reduction is required is either:
     //   (a) the total number of output tiles (in the case of split-K)
-    //   (b) the number of stream-K tiles
-    // To calcualte the the total number of output tiles in the split-K case, we
+    //   (b) the number of stream-K tiles (potentially multiplied by peer count if using separate reduction)
+    // To calculate the total number of output tiles in the split-K case, we
     // note that, in the split-K case, the units_per_problem_ member of Params will be
-    // the total number of output tiles multiplied by the number of splits.
-    auto reduction_tiles = params.splits_ > 1 ? (params.units_per_problem_ / params.splits_) : params.sk_tiles_;
-    auto reduction_workspace_size = get_reduction_workspace_size<ElementAccumulator>(reduction_tiles);
+    // the total number of output tiles.
+    uint32_t reduction_tiles = 0;
+    if (params.divmod_splits_.divisor > 1) {
+      reduction_tiles = params.units_per_problem_;
+    }
+    else if (
+      params.requires_separate_reduction()
+      ) {
+      reduction_tiles = params.sk_tiles_ * Params::max_peers_per_tile(params.sk_units_, params.sk_tiles_);
+    }
+    else {
+      reduction_tiles = params.sk_tiles_;
+    }
+
+    uint64_t reduction_workspace_size = Params::get_reduction_workspace_size(
+      reduction_tiles, to_gemm_coord(TileShape{}), sizeof_bits<ElementAccumulator>::value, num_accumulator_mtxs);
     BarrierType* lock_workspace = reinterpret_cast<BarrierType*>(
       reinterpret_cast<uint8_t*>(params.reduction_workspace_) + reduction_workspace_size);
 
-    if (!work_tile_info.is_final_split) {
-      if (work_tile_info.K_idx == 0) {
-        // First peer initializes the workspace partials
+    if (work_tile_info.is_reduction_unit()) {
+      // Wait until the peers collaborating on this output tile have all written
+      // their accumulators to workspace.
+      BarrierManager::wait_eq(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, num_peers);
+
+      separate_reduction<FrgTensorC, BarrierManager>(accumulators, num_barriers, group_reduction_workspace, barrier_group_thread_idx, num_peers, num_accumulator_mtxs);
+    }
+    else if (!compute_epilogue(work_tile_info, params)) {
+      if (
+        params.requires_separate_reduction()
+        || work_tile_info.K_idx == 0
+        ) {
+        // The first peer initializes the workspace partials in the non-separate-reduction case,
+        // and all peers write to their own location in workspace when using separate reduction
         BlockStripedReduceT::store(reduction_workspace_array, *accumulator_array, barrier_group_thread_idx);
       }
       else {
-        // Wait until the preceding split added its accumulators
-        BarrierManager::wait_eq(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, work_tile_info.K_idx);
+        if (params.reduction_mode_ == ReductionMode::Deterministic) {
+          // Wait until the preceding split added its accumulators
+          BarrierManager::wait_eq(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, work_tile_info.K_idx);
+        }
+        else {
+          // Wait until the first split has stored its accumulators. Note that the first split will have
+          // accumulated a value into the lock potentially greater than one (since the locked value is
+          // incremented by work_tile_info.k_tile_count below for both the deterministic and non-deterministic)
+          // cases. For non-deterministic reductions, all that non-first or last splits care about is whether
+          // the first split has been written, so we only wait while the locked value is less than 1.
+          BarrierManager::wait_lt(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, 1);
+        }
 
         // Perform reduction in workspace
         BlockStripedReduceT::reduce(reduction_workspace_array, *accumulator_array, barrier_group_thread_idx);
       }
 
+      // If separate reduction is being performed, each participating stream-K unit increments the barrier
+      // by only 1. Otherwise, increment by the K tile count that this unit has processed.
+      uint32_t increment = params.requires_separate_reduction() ? 1 : work_tile_info.k_tile_count;
+
       // Signal our arrival
-      BarrierManager::arrive_inc(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, work_tile_info.k_tile_count);
+      if (idx_accumulator_mtxs == (num_accumulator_mtxs - 1)) {
+        BarrierManager::arrive_inc(barrier_idx, lock_workspace, barrier_group_thread_idx, lock_idx, increment);
+      }
     }
     else {
       // Wait until the preceding split added its accumulators
@@ -531,91 +550,98 @@ public:
     }
   }
 
-  // Splits an input tensor with MxK according to the splitting configuration specified by work_tile_info
-  template<class Engine, class Layout>
+  template <class FrgTensorC, class BarrierManager>
   CUTLASS_DEVICE
-  static auto
-  split_MK(cute::Tensor<Engine, Layout> const& tensor, WorkTileInfo const& work_tile_info) {
-    return split<Engine, Layout, 0>(tensor, work_tile_info);
-  }
+  static void
+  separate_reduction(
+      FrgTensorC& accumulators,
+      uint32_t num_barriers,
+      typename FrgTensorC::value_type* reduction_workspace,
+      uint32_t thread_idx,
+      uint64_t num_peers,
+      uint32_t num_accumulator_mtxs) {
+    using AccumulatorArrayT = Array<typename FrgTensorC::value_type, size(FrgTensorC{})>;
+    using BlockStripedReduceT = BlockStripedReduce<BarrierManager::ThreadCount, AccumulatorArrayT>;
 
-  // Splits an input tensor with NxK tiles according to the splitting configuration specified by work_tile_info
-  template<class Engine, class Layout>
-  CUTLASS_DEVICE
-  static auto
-  split_NK(cute::Tensor<Engine, Layout> const& tensor, WorkTileInfo const& work_tile_info) {
-    return split<Engine, Layout, 1>(tensor, work_tile_info);
+    AccumulatorArrayT* accumulator_array = reinterpret_cast<AccumulatorArrayT*>(accumulators.data());
+
+    plus<AccumulatorArrayT> add_fragments;
+    uint64_t peer_offset = cute::size<0>(TileShape{}) * cute::size<1>(TileShape{}) * num_accumulator_mtxs;
+
+    for (uint64_t i = 0; i < num_peers; ++i) {
+      // Load peer fragment
+      AccumulatorArrayT addend_fragment;
+      auto peer_reduction_workspace = reinterpret_cast<AccumulatorArrayT*>(reduction_workspace + (i * peer_offset));
+
+      BlockStripedReduceT::load_add(*accumulator_array, peer_reduction_workspace, thread_idx);
+    }
   }
 
   // Returns whether the block assigned this work should compute the epilogue for the corresponding
   // output tile. For the case of stream-K, this should only occur if the work is marked as the final split.
   CUTLASS_HOST_DEVICE
   static bool
-  compute_epilogue(WorkTileInfo const& work_tile_info) {
-    return work_tile_info.is_final_split;
+  compute_epilogue(WorkTileInfo const& work_tile_info, Params const& params) {
+    // `is_final_split` will be set to `true` for the following scenarios, all of which must compute the epilogue:
+    //  1. The tile is computed in data-parallel mode
+    //  2. The tile is computed in split-/stream-K mode and this work unit represents the final split of the tile
+    //  3. The tile is computed in split-/stream-K mode and separate reduction is used, and this is a separate reduction unit
+    return work_tile_info.is_valid() &&
+            (work_tile_info.is_final_split(params.divmod_tiles_per_output_tile_.divisor) &&
+             !params.requires_separate_reduction()) || work_tile_info.is_separate_reduction;
   }
 
   // Returns the linearized index of the output tile corresponding to the tile with offset [L, M, K]
   CUTLASS_DEVICE
-  static int
+  static uint64_t
   output_tile_index(Params const& params, WorkTileInfo const& work_tile_info) {
-    if (params.splits_ > 1) {
-      auto tiles_mn = params.divmod_batch_.divisor / params.splits_;
-      if (params.raster_order_ == RasterOrder::AlongN) {
-        return
-          (tiles_mn * work_tile_info.L_idx) +
-          (params.divmod_cluster_shape_major_.divisor * 
-           params.divmod_cluster_blk_major_.divisor * work_tile_info.M_idx) +
-          work_tile_info.N_idx;
-      }
-      else {
-        return
-          (tiles_mn * work_tile_info.L_idx) +
-          (params.divmod_cluster_shape_major_.divisor * 
-           params.divmod_cluster_blk_major_.divisor * work_tile_info.N_idx) +
-          work_tile_info.M_idx;
-      }
-    }
-    else {
-      auto [cta_m_in_cluster, cta_n_in_cluster, _] = cute::block_id_in_cluster();
+    uint64_t linear_idx_in_batch = UnderlyingScheduler::get_linear_idx_from_m_and_n(
+      work_tile_info.M_idx, work_tile_info.N_idx,
+      params.divmod_cluster_shape_major_,
+      params.divmod_cluster_shape_minor_,
+      params.divmod_cluster_blk_major_,
+      params.log_swizzle_size_,
+      params.raster_order_
+    );
 
-      uint64_t cta_per_grid_dim;
-      uint64_t cluster_dim_idx;
-      if (params.raster_order_ == RasterOrder::AlongN) {
-        uint64_t block_idx_m = (work_tile_info.M_idx - cta_m_in_cluster) / cute::size<0>(params.cluster_shape_);
-        uint64_t block_idx_n = work_tile_info.N_idx;
-        cta_per_grid_dim = (params.divmod_cluster_shape_major_.divisor * 
-           params.divmod_cluster_blk_major_.divisor * block_idx_m) + block_idx_n;
-        cluster_dim_idx = cta_m_in_cluster;
-      }
-      else {
-        uint64_t block_idx_m = work_tile_info.M_idx;
-        uint64_t block_idx_n = (work_tile_info.N_idx - cta_n_in_cluster) / cute::size<1>(params.cluster_shape_);
-        cta_per_grid_dim = (params.divmod_cluster_shape_major_.divisor * 
-           params.divmod_cluster_blk_major_.divisor * block_idx_n) + block_idx_m;
-        cluster_dim_idx = cta_n_in_cluster;
-      }
-
-      uint64_t tile_in_batch = params.divmod_cluster_shape_minor_.divisor * cta_per_grid_dim;
-      return params.divmod_batch_.divisor * work_tile_info.L_idx + tile_in_batch + cluster_dim_idx;
-    }
+    uint64_t tiles_mn = params.divmod_batch_.divisor;
+    return tiles_mn * work_tile_info.L_idx + linear_idx_in_batch;
   }
 
   template <class ProblemShape, class ElementAccumulator>
-  static int
+  static size_t
   get_workspace_size(
     Arguments const& args,
     ProblemShape problem_shape,
     KernelHardwareInfo const& hw_info,
-    uint32_t mma_warp_groups) {
+    uint32_t mma_warp_groups,
+    const uint32_t epilogue_subtile = 1,
+    [[maybe_unused]] uint32_t num_accumulator_mtxs = 1) {
 
-    int barrier_workspace_size = 0;
-    int reduction_workspace_size = 0;
+    auto problem_shape_mnkl = cute::append<4>(problem_shape, 1);
 
-    get_workspace_component_sizes<ProblemShape, ElementAccumulator>(
-      args, problem_shape, barrier_workspace_size, reduction_workspace_size, hw_info, mma_warp_groups);
+    ClusterShape cluster_shape;
+    TileShape tile_shape;
 
-    return barrier_workspace_size + reduction_workspace_size;
+    dim3 problem_blocks = get_tiled_cta_shape_mnl(problem_shape_mnkl, tile_shape, cluster_shape);
+    uint32_t k_tile_per_output_tile = cute::size(cute::ceil_div(cute::shape<2>(problem_shape_mnkl), cute::shape<2>(TileShape{})));
+
+    return Params::get_workspace_size(
+      problem_blocks,
+      k_tile_per_output_tile,
+      to_gemm_coord(tile_shape),
+      to_gemm_coord(cluster_shape),
+      hw_info,
+      args.splits,
+      args.max_swizzle_size,
+      args.raster_order,
+      args.decomposition_mode,
+      args.reduction_mode,
+      mma_warp_groups,
+      sizeof_bits<BarrierType>::value,
+      sizeof_bits<ElementAccumulator>::value,
+      epilogue_subtile
+    );
   }
 
   template <class ProblemShape, class ElementAccumulator>
@@ -625,206 +651,119 @@ public:
     void* workspace,
     cudaStream_t stream,
     ProblemShape const& problem_shape,
-     KernelHardwareInfo const& hw_info,
-    uint32_t mma_warp_groups) {
-
-    #if !defined(__CUDACC_RTC__)
-      int barrier_workspace_size = 0;
-      int reduction_workspace_size = 0;
-
-      get_workspace_component_sizes<ProblemShape, ElementAccumulator>(
-        args, problem_shape, barrier_workspace_size, reduction_workspace_size, hw_info, mma_warp_groups);
-
-      if (barrier_workspace_size > 0) {
-        if (workspace == nullptr) {
-          return Status::kErrorWorkspaceNull;
-        }
-
-        // Only the barrier workspace needs to be cleared for stream-K.
-        // Barrier workspace follows reduction workspace.
-        uint8_t* barrier_workspace = reinterpret_cast<uint8_t*>(workspace) + reduction_workspace_size;
-        return zero_workspace(static_cast<void*>(barrier_workspace), barrier_workspace_size, stream);
-      }
-
-      return Status::kSuccess;
-    #endif
-  }
-
-  template <class ProblemShape>
-  CUTLASS_HOST_DEVICE
-  static int
-  get_work_k_tile_count(WorkTileInfo const& work_tile_info, ProblemShape, TileShape) {
-    return work_tile_info.k_tile_count;
-  }
-
-private:
-  // Splits a tensor using the splitting configuration specified by work_tile_info using
-  // a MN shape detemined by TileDim0.
-  template <class Engine, class Layout, int TileDim0>
-  CUTLASS_DEVICE
-  static auto
-  split(cute::Tensor<Engine, Layout> const& tensor, WorkTileInfo const& work_tile_info) {
-    using namespace cute;
-
-    // Divide input tensor into `splits` chunks along the k dimension
-    auto div_shape = make_shape(size<TileDim0>(TileShape{}), size<2>(TileShape{}), work_tile_info.splits);
-    auto split = zipped_divide(tensor, div_shape);
-
-    // Index into the split tensor at the work tile's split index
-    auto indexed = split(make_coord(make_coord(_, _, work_tile_info.K_idx), make_coord(0, 0, _)));
-
-    // Construct a layout for the indexed tensor. The main purpose of this new layout is to
-    // override the k extent to support cases in which the split computes a number of iterations
-    // not equal to total_k_tiles / splits. A common example of this is in stream-K is when a
-    // unit computes the final 20 of the total 32 k iterations of the output tile. In this case,
-    // set splits = 32 and the split index (K_idx) to 11. The zipped divide above results in each
-    // of the splits computing only one k iteration.
-    auto overridden_shape = make_shape(size<0>(indexed.layout()), size<1>(indexed.layout()), work_tile_info.k_tile_count);
-    auto layout = make_layout(overridden_shape, tensor.stride());
-
-    return make_tensor(indexed.data(), layout);
-  }
-
-  // Returns the number of stream-K tiles that will be computed amongst `output_tiles` total
-  // output tiles on a device with `ctas_per_wave` CTAs in each wave.
-  static uint32_t
-  get_num_sk_tiles(uint64_t output_tiles, uint64_t ctas_per_wave, uint32_t k_tiles_per_output_tile) {
-    uint32_t full_waves = static_cast<uint32_t>(output_tiles / ctas_per_wave);
-    uint32_t total_waves = static_cast<uint32_t>((output_tiles + ctas_per_wave - 1) / ctas_per_wave);
-
-    if (full_waves == total_waves || k_tiles_per_output_tile == 1) {
-      // All tiles will be data-parallel tiles if there is either no quantization
-      // or if there is no work to be split.
-      return 0;
-    }
-
-    //
-    // The final wave is not full. Perform some stream-K work.
-    //
-
-    // Rudimentary heuristic: prefer data-parallel decomposition if we have more than
-    // one wave and the tail wave is more than half full. This is subject to change.
-    if (full_waves != 0) {
-      uint64_t tail_tiles = output_tiles - (full_waves * ctas_per_wave);
-      if (tail_tiles >= (ctas_per_wave / 2)) {
-        return 0;
-      }
-    }
-
-    // If there is wave quantization, assign the first two waves worth of tiles to be
-    // covered by stream-K work and the remainder to be data-parallel. Since we know
-    // that full_waves == total_waves - 1 in this case, the number of data-parallel
-    // waves is simply full_waves-1 (unless full_waves == 0).
-    uint32_t dp_waves = full_waves > 0 ? full_waves - 1 : 0;
-
-    uint64_t dp_tiles = dp_waves * ctas_per_wave;
-    return static_cast<uint32_t>(output_tiles - dp_tiles);
-  }
-
-  // Calculates the size of the workspace needed for holding reduction barriers
-  CUTLASS_HOST_DEVICE
-  static int
-  get_barrier_workspace_size(uint64_t num_tiles, uint32_t mma_warp_groups) {
-    auto workspace_bits = num_tiles * mma_warp_groups * sizeof_bits<BarrierType>::value;
-    return bits_to_bytes(static_cast<int>(workspace_bits));
-  }
-
-  // Calculates the size of the workspace needed for holding partial outputs from splits
-  template <class ElementAccumulator>
-  CUTLASS_HOST_DEVICE
-  static int
-  get_reduction_workspace_size(uint64_t num_tiles) {
-    auto output_tile_size = cute::size<0>(TileShape{}) * cute::size<1>(TileShape{});
-    auto workspace_bits = sizeof_bits<ElementAccumulator>::value * output_tile_size * num_tiles;
-    return bits_to_bytes(static_cast<int>(workspace_bits));
-  }
-
-  template <class ProblemShape, class ElementAccumulator>
-  static void
-  get_workspace_component_sizes(
-    Arguments const& args,
-    ProblemShape problem_shape,
-    int& barrier_workspace_size,
-    int& reduction_workspace_size,
     KernelHardwareInfo const& hw_info,
-    uint32_t mma_warp_groups) {
-
-    // Workspace is needed only for output tiles that will be split. Thus, we first determine the number
-    // of output tiles that will be split, and then calculate the workspace needed to cover these.
+    uint32_t mma_warp_groups,
+    const uint32_t epilogue_subtile = 1,
+    [[maybe_unused]] uint32_t num_accumulator_mtxs = 1,
+    CudaHostAdapter* cuda_adapter = nullptr) {
 
     auto problem_shape_mnkl = cute::append<4>(problem_shape, 1);
 
     ClusterShape cluster_shape;
-    auto [problem_blocks_m, problem_blocks_n, problem_blocks_l] = get_tiled_cta_shape_mnl(
-      problem_shape_mnkl, TileShape{}, cluster_shape);
-    uint64_t output_tiles = problem_blocks_m * problem_blocks_n * problem_blocks_l;
+    TileShape tile_shape;
 
-    if (args.splits > 1) {
-      // Basic split-K variant requires workspace for all output tiles
-      barrier_workspace_size = get_barrier_workspace_size(output_tiles, mma_warp_groups);
-      reduction_workspace_size = get_reduction_workspace_size<ElementAccumulator>(output_tiles);
-    }
-    else {
-      int sm_count = hw_info.sm_count;
-      if (sm_count <= 0) {
-        CUTLASS_TRACE_HOST("  WARNING: Arguments do not include a valid SM count.\n"
-            "  For optimal performance, populate the arguments KernelHardwareInfo struct with the SM count.");
-        sm_count = KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
-      }
+    dim3 problem_blocks = get_tiled_cta_shape_mnl(problem_shape_mnkl, tile_shape, cluster_shape);
+    uint32_t k_tile_per_output_tile = cute::size(cute::ceil_div(cute::shape<2>(problem_shape_mnkl), cute::shape<2>(TileShape{})));
 
-      uint32_t k_tiles_per_output_tile = (cute::size<2>(problem_shape_mnkl) + cute::size<2>(TileShape{}) - 1) /
-                                   cute::size<2>(TileShape{});
-
-      dim3 grid = get_grid_shape(problem_shape_mnkl, TileShape{}, cluster_shape, {0, sm_count}, args);
-      uint64_t ctas_per_wave = grid.x * grid.y;
-      uint32_t sk_tiles = get_num_sk_tiles(output_tiles, ctas_per_wave, k_tiles_per_output_tile);
-
-      barrier_workspace_size = get_barrier_workspace_size(sk_tiles, mma_warp_groups);
-      reduction_workspace_size = get_reduction_workspace_size<ElementAccumulator>(sk_tiles);
-    }
+    return Params::initialize_workspace(
+      workspace,
+      stream,
+      problem_blocks,
+      k_tile_per_output_tile,
+      to_gemm_coord(tile_shape),
+      to_gemm_coord(cluster_shape),
+      hw_info,
+      args.splits,
+      args.max_swizzle_size,
+      args.raster_order,
+      args.decomposition_mode,
+      args.reduction_mode,
+      mma_warp_groups,
+      sizeof_bits<BarrierType>::value,
+      sizeof_bits<ElementAccumulator>::value,
+      epilogue_subtile,
+      1,
+      cuda_adapter
+    );
   }
 
-  // Constructs parameters for either a basic data-parallel or basic split-K decomposition of the problem
-  static Params
-  get_params_basic(
-    UnderlyingParams const& underlying_params,
-    uint32_t blocks_m,
-    uint32_t blocks_n,
-    uint32_t blocks_l,
-    ClusterShape cluster_shape,
-    uint32_t splits,
-    uint32_t k_tiles_per_output_tile,
-    void* reduction_workspace) {
-
-    uint32_t big_units = k_tiles_per_output_tile % splits;
-
-    return {
-      underlying_params.divmod_cluster_shape_major_,
-      underlying_params.divmod_cluster_shape_minor_,
-      FastDivmodU64(blocks_m * blocks_n * splits),
-      FastDivmodU64(blocks_m * blocks_n),
-      underlying_params.divmod_cluster_blk_major_,
-      underlying_params.log_swizzle_size_,
-      blocks_m * blocks_n * blocks_l * splits,
-      underlying_params.raster_order_,
-      cluster_shape,
-      splits,
-      k_tiles_per_output_tile,
-      big_units,
-      reduction_workspace
-    };
+  template <class ProblemShape>
+  CUTLASS_HOST_DEVICE
+  static uint32_t
+  get_work_k_tile_count(WorkTileInfo const& work_tile_info, ProblemShape, TileShape) {
+    return work_tile_info.k_tile_count;
   }
 
-  // Sets the current stream-K work to compute within work_tile_info. If new_unit is true, work_tile_info
-  // is populated as a new unit of work. Otherwise, state existing in work_tile_info (e.g., remaining
-  // iterations) is used to find the next tile in the current work unit.
+  CUTLASS_HOST_DEVICE
+  static uint32_t
+  get_work_k_tile_start(WorkTileInfo const& work_tile_info) {
+    return work_tile_info.K_idx;
+  }
+
+  // Kernel helper function to get next work tile
   CUTLASS_DEVICE
-  static void
-  set_stream_k_work(
+  auto
+  fetch_next_work(WorkTileInfo work_tile_info) {
+    if (continue_current_work(work_tile_info)) {
+      return cute::make_tuple(work_tile_info, true);
+    }
+
+    advance_to_next_work();
+    return cute::make_tuple(get_current_work(), true);
+  }
+
+  // Kernel helper function to get next work tile
+  template <class TileSchedulerPipeline, class TileSchedulerPipelineState>
+  CUTLASS_DEVICE
+  auto
+  fetch_next_work(
+      WorkTileInfo work_tile_info,
+      TileSchedulerPipeline& scheduler_pipeline,
+      TileSchedulerPipelineState scheduler_pipe_consumer_state) {
+    return fetch_next_work(work_tile_info);
+  }
+
+  // Returns the initial work tile info that will be computed over
+  CUTLASS_DEVICE
+  WorkTileInfo
+  initial_work_tile_info(ClusterShape) {
+    return get_current_work();
+  }
+
+  // Given raster order and current work tile linear index, reset cta m and n index in the cluster.
+  CUTLASS_DEVICE
+  static dim3
+  get_current_work_cta_m_n_in_cluster(
     Params const& params,
     uint64_t linear_idx,
-    WorkTileInfo& work_tile_info,
-    bool new_unit) {
+    dim3 block_id_in_cluster) {
+    auto [cta_m_in_cluster_, cta_n_in_cluster_, _] = block_id_in_cluster;
+    uint64_t cta_m_in_cluster = static_cast<uint64_t>(cta_m_in_cluster_);
+    uint64_t cta_n_in_cluster = static_cast<uint64_t>(cta_n_in_cluster_);
+    
+    // Determine the CTA's M and N offsets within the preferred cluster
+    // This simply finds the linear offset of the CTA within the cluster, and takes a divmod
+    // on it depending on the rasterization order used by the scheduler.
+    uint64_t cluster_linear_work_idx_tmp = params.div_cluster_size(linear_idx) * params.get_cluster_size();
+
+    if (params.raster_order_ == RasterOrder::AlongN) {
+      params.divmod_cluster_shape_minor_(cta_n_in_cluster, cta_m_in_cluster, linear_idx - cluster_linear_work_idx_tmp);
+    }
+    else {
+      params.divmod_cluster_shape_minor_(cta_m_in_cluster, cta_n_in_cluster, linear_idx - cluster_linear_work_idx_tmp);
+    }
+    
+    return {static_cast<uint32_t>(cta_m_in_cluster), static_cast<uint32_t>(cta_n_in_cluster), _};
+  }
+
+private:
+
+  CUTLASS_DEVICE
+  static uint32_t
+  get_current_work_iter_start_possible_update_work_tile_k_remaining(
+    Params const& params,
+    uint64_t linear_idx,
+    WorkTileInfo& work_tile_info) {
     // In the CUTLASS 2.x implementation of stream K, stream-K work is assigned to each stream-K
     // threadblock individually. For the most part, the set of K iterations corresponding to stream-K
     // work was divided amongst stream-K threadblocks, and a threadblock determined which tile
@@ -840,42 +779,147 @@ private:
     //
     // To do so, we divide up the linearized stream-K units into clusters and share the same K
     // offsets for work within clusters.
-    auto cluster_linear_work_idx = linear_idx / size(params.cluster_shape_);
+    uint64_t cluster_linear_work_idx = params.div_cluster_size(linear_idx);
+
+    uint64_t group_idx;
+    params.divmod_sk_groups_(cluster_linear_work_idx, group_idx, cluster_linear_work_idx);
+
+    // Determine whether we are in a "big group" that will process an additional
+    // stream-K cluster tile.
+    uint64_t sk_cluster_tiles = params.div_cluster_size(params.sk_tiles_);
+    uint64_t sk_cluster_tiles_in_group = params.divmod_sk_groups_.divide(sk_cluster_tiles);
+    if (group_idx < params.big_groups_) {
+      ++sk_cluster_tiles_in_group;
+    }
+
+    // Determine whether we are in a "big unit" within the group, that will process
+    // an additional K chunk in the group.
+    uint64_t sk_tiles_in_group = sk_cluster_tiles_in_group * params.get_cluster_size();
+    uint64_t k_tiles_in_group = sk_tiles_in_group * params.divmod_tiles_per_output_tile_.divisor;
+    uint64_t k_tiles_per_unit_in_group = params.divmod_sk_units_per_group_.divide(k_tiles_in_group);
+    uint64_t big_units_in_group = params.div_cluster_size(
+      k_tiles_in_group - (k_tiles_per_unit_in_group * params.divmod_sk_units_per_group_.divisor));
+
+    uint64_t split;
+    params.divmod_clusters_mnl_(split, cluster_linear_work_idx, cluster_linear_work_idx);
+
+    bool is_split_k = params.divmod_splits_.divisor > 1;
+    uint64_t big_unit_cmp_lhs = is_split_k ? split : cluster_linear_work_idx;
+    uint64_t big_unit_cmp_rhs = is_split_k ? params.big_units_ : big_units_in_group;
+    uint64_t linear_idx_mult = is_split_k ? params.divmod_tiles_per_output_tile_.divisor : k_tiles_per_unit_in_group;
+    uint64_t k_tiles_per_split = is_split_k ? params.divmod_k_tiles_per_sk_unit_.divisor : k_tiles_per_unit_in_group;
 
     // Determine the starting k iteration computed by this stream-K work unit
-    uint32_t unit_iter_start = params.k_tiles_per_sk_unit_ * cluster_linear_work_idx;
+    uint32_t unit_iter_start = (linear_idx_mult * cluster_linear_work_idx) +
+                               (k_tiles_per_split * split);
 
     // Adjust the starting position and number of k iterations for "big units," which
-    // compute one extra iteration. These are the first big_units_ units in the
-    // linearized ID space.
-    bool is_big_unit = cluster_linear_work_idx < params.big_units_;
-    if (is_big_unit) {
+    // compute one extra iteration. If there are any big units, they will be the first
+    // in the linearized ID space.
+    auto k_tiles_in_my_split = k_tiles_per_split;
+    if (big_unit_cmp_lhs < big_unit_cmp_rhs) {
       // Since the "big units" are the first units in the linearized ID space, each
       // of the units preceding this big unit computed one extra iteration. Thus,
       // we must offset our start iteration by the number of units that precede
       // the current unit in the linearized ID space.
-      unit_iter_start += cluster_linear_work_idx;
-    } else {
-      // Increment by one for each of the big clusters (since all big units precede this unit)
-      unit_iter_start += params.big_units_;
-    }
-
-    uint32_t unit_iters;
-    if (new_unit) {
-      unit_iters = params.k_tiles_per_sk_unit_;
-
-      // Only adjust iteration count for big unit if we are initializing this
-      // work unit. For existing work units, the extra iteration for big units
-      // has already been accounted for in k_tiles_reamaining
-      if (is_big_unit) {
-        ++unit_iters;
-      }
+      unit_iter_start += big_unit_cmp_lhs;
+      ++k_tiles_in_my_split;
     }
     else {
-      unit_iters = work_tile_info.k_tile_remaining;
+      // Increment by one for each of the big clusters (since all big units precede this unit)
+      unit_iter_start += big_unit_cmp_rhs;
     }
+    if (!is_split_k) {
+      // Adjust the unit starting position and number of tiles to avoid
+      // computing splits of size less than min_iters_per_sk_unit_
+      int unused, start_tile_k_tile;
+      params.divmod_tiles_per_output_tile_(unused, start_tile_k_tile, unit_iter_start);
+      if (start_tile_k_tile < Params::min_iters_per_sk_unit_) {
+        // Starting K tile is in range [0, Params::min_iters_per_sk_unit_), which means that another
+        // stream-K unit will be computing a split with fewer than Params::min_iters_per_sk_unit_ K tiles.
+        // Adjust our work to take over these K tiles.
+        unit_iter_start -= start_tile_k_tile;
+        k_tiles_in_my_split += start_tile_k_tile;
+      }
+      else if (start_tile_k_tile > (params.divmod_tiles_per_output_tile_.divisor - Params::min_iters_per_sk_unit_)) {
+        // Starting K tile is within the final Params::min_iters_per_sk_unit_ K tiles of some output tile,
+        // which means that this unit will compute a split with fewer than Params::min_iters_per_sk_unit_ K tiles.
+        // Adjust our work to shed these K tiles to a neighboring stream-K unit that will compute more consecutive K tiles.
+        auto adjustment_tiles = (params.divmod_tiles_per_output_tile_.divisor - start_tile_k_tile);
+        unit_iter_start += adjustment_tiles;
+        k_tiles_in_my_split -= adjustment_tiles;
+      }
+      else if (params.ktile_start_alignment_count_ == 2 && start_tile_k_tile % 2 != 0) {
+        // ktile for each SM start from even number
+        // If start from odd number ktile within the output tile
+        //    now start at the ktile one before my initial ktile start (take one ktile from prev sm)
+        // if end on odd number ktile within the output tile
+        //    now end at ktile that one before my ktile end (give one ktile to next sm)
+        unit_iter_start -= 1;
+        k_tiles_in_my_split += 1;
+      }
+    }
+    if (work_tile_info.k_tile_count == 0) {
+      // This is a new unit
 
-    // Find the output tile corresponding to the final k iteration covered by this
+      if (!is_split_k) {
+        //
+        // Adjust the unit ending position and number of tiles to avoid
+        // computing splits of size less than min_iters_per_sk_unit_
+        //
+
+        // Begin by assuming that no adjustment is needed
+        auto initial_unit_iter_end = unit_iter_start + k_tiles_in_my_split;
+
+        int unused, end_tile_k_tile;
+        params.divmod_tiles_per_output_tile_(unused, end_tile_k_tile, initial_unit_iter_end);
+
+        if (end_tile_k_tile < Params::min_iters_per_sk_unit_) {
+          // Ending K tile is within the first Params::min_iters_per_sk_unit_ K tiles of some output tile,
+          // which means that this unit will compute a split with fewer than Params::min_iters_per_sk_unit_ K tiles.
+          // Adjust our work to shed these K tiles to a neighboring stream-K unit that will compute more consecutive K tiles.
+          k_tiles_in_my_split -= end_tile_k_tile;
+        }
+        else if (end_tile_k_tile > (params.divmod_tiles_per_output_tile_.divisor - Params::min_iters_per_sk_unit_)) {
+          // Ending K tile is within the final Params::min_iters_per_sk_unit_ K tiles of some output tile,
+          // which means that some other unit will compute a split with fewer than Params::min_iters_per_sk_unit_ K tiles.
+          // Adjust our work to take on these K tiles.
+          k_tiles_in_my_split += (params.divmod_tiles_per_output_tile_.divisor - end_tile_k_tile);
+        }
+        else if (params.ktile_start_alignment_count_ == 2 && end_tile_k_tile % 2 != 0) {
+          // ktile for each SM start from even number
+          // If start from odd number ktile within the output tile
+          //    now start at the ktile one before my initial ktile start (take one ktile from prev sm)
+          // If end on odd number ktile within the output tile,
+          //    now end at ktile that one before my ktile end (give one ktile to next sm)
+          k_tiles_in_my_split -= 1;
+        }
+      }
+
+      work_tile_info.k_tile_remaining = k_tiles_in_my_split;
+    }
+    return unit_iter_start;
+  }
+
+  // Update output tile index given existing remaining k tiles of current work tile.
+  CUTLASS_DEVICE
+  static uint64_t update_output_tile_id_and_work_tile_k(
+    Params const& params,
+    WorkTileInfo& work_tile_info,
+    uint64_t linear_idx,
+    uint32_t unit_iter_start,
+    uint64_t cta_m_in_cluster,
+    uint64_t cta_n_in_cluster) {
+    // we divide up the linearized stream-K units into clusters and share the same K
+    // offsets for work within clusters.
+    uint64_t cluster_linear_work_idx = params.div_cluster_size(linear_idx);
+
+    uint64_t unused, group_idx;
+    params.divmod_sk_groups_(unused, group_idx, cluster_linear_work_idx);
+
+    uint32_t unit_iter_end = unit_iter_start + work_tile_info.k_tile_remaining - 1;
+
+    // Find the output tile corresponding to the final k tile covered by this
     // work unit. Stream-K work units will work backwards in terms of the tiles they
     // are responsible computing. This is beneficial because the final (partial)
     // tile computed by a stream-K block is typically the beginning of the output
@@ -884,157 +928,187 @@ private:
     // other work units computing portions of that output tile, it is preferable
     // for them to be computed later, so as to reduce the likelihood of blocking
     // on other work.
-    uint32_t unit_iter_end = unit_iter_start + unit_iters - 1;
-    uint32_t true_tile_id = unit_iter_end / params.k_tiles_per_output_tile_;
-    uint32_t true_tile_iter_start = true_tile_id * params.k_tiles_per_output_tile_;
-    uint32_t true_tile_iter_end = true_tile_iter_start + params.k_tiles_per_output_tile_;
+
+    auto output_tile_id_in_group = params.divmod_tiles_per_output_tile_.divide(unit_iter_end);
+    uint32_t output_tile_iter_start = output_tile_id_in_group * params.divmod_tiles_per_output_tile_.divisor;
+    uint32_t output_tile_iter_end = output_tile_iter_start + params.divmod_tiles_per_output_tile_.divisor;
+
+    // Convert the output tile from the linearized space within each group to the
+    // overall linearized space.
+    uint64_t output_tile_id = (output_tile_id_in_group * params.divmod_sk_groups_.divisor) + group_idx;
 
     // Bring the linearized tile ID back into the space of tiles, rather than clusters
-    true_tile_id *= size(params.cluster_shape_);
-
-    auto [cta_m_in_cluster, cta_n_in_cluster, _] = cute::block_id_in_cluster();
+    output_tile_id *= params.get_cluster_size();
 
     // The final linearized tile ID is in units of the cluster dimension over which we rasterize.
     if (params.raster_order_ == RasterOrder::AlongN) {
-      true_tile_id += cta_n_in_cluster * cute::size<0>(params.cluster_shape_);
+      output_tile_id += cta_n_in_cluster * params.divmod_cluster_shape_minor_.divisor;
     }
     else {
-      true_tile_id += cta_m_in_cluster * cute::size<1>(params.cluster_shape_);
+      output_tile_id += cta_m_in_cluster * params.divmod_cluster_shape_minor_.divisor;
     }
-
     // The unit's starting k iteration in the current tile is either the starting
     // iteration for the tile as a whole, or the starting k iteration for the unit
     // as a whole (if the latter is greater than the former).
-    uint32_t tile_iter_start = max(true_tile_iter_start, unit_iter_start);
+    uint32_t tile_iter_start = max(output_tile_iter_start, unit_iter_start);
 
     // Similarly, the unit's ending k iteration (exclusive) is either the end of
     // the current tile it is assigned, or the ending iteration of the unit as a whole
     // (if the latter is less than the former).
-    uint32_t tile_iter_end = min(true_tile_iter_end, unit_iter_end + 1);
+    uint32_t tile_iter_end = min(output_tile_iter_end, unit_iter_end + 1);
 
-    uint32_t tile_iters = tile_iter_end - tile_iter_start;
+    // Set the k offset to be the starting k tile for this output tile
+    work_tile_info.K_idx = static_cast<int32_t>(tile_iter_start - output_tile_iter_start);
+    work_tile_info.k_tile_count = tile_iter_end - tile_iter_start;
+
+    return output_tile_id;
+  }
+  // Given output tile index, update M, N, L index of current work tile info.
+  CUTLASS_DEVICE
+  static void
+  update_work_tile_m_n_l(
+    Params const& params,
+    uint32_t output_tile_id,
+    WorkTileInfo& work_tile_info,
+    uint64_t cta_m_in_cluster,
+    uint64_t cta_n_in_cluster) {
 
     uint64_t work_idx_l, remainder;
-    params.divmod_batch_(work_idx_l, remainder, true_tile_id);
+    params.divmod_batch_(work_idx_l, remainder, output_tile_id);
 
-    uint64_t cta_per_grid_dim, dontcare;
-    params.divmod_cluster_shape_minor_(cta_per_grid_dim, dontcare, remainder);
+    uint64_t cta_per_grid_dim = params.divmod_cluster_shape_minor_.divide(remainder);
 
     auto [work_idx_m, work_idx_n] = UnderlyingScheduler::get_work_idx_m_and_n(
                                           cta_per_grid_dim,
                                           params.divmod_cluster_shape_major_,
                                           params.divmod_cluster_shape_minor_,
                                           params.divmod_cluster_blk_major_,
-                                          params.log_swizzle_size_, 
-                                          params.raster_order_);
-
-    //
-    // Update the work_tile_info
-    //
+                                          params.log_swizzle_size_,
+                                          params.raster_order_
+                                          , cta_m_in_cluster  
+                                          , cta_n_in_cluster  
+                                        );
 
     // Set the M, N, and L block offsets
     work_tile_info.M_idx = work_idx_m;
     work_tile_info.N_idx = work_idx_n;
     work_tile_info.L_idx = static_cast<int32_t>(work_idx_l);
-
-    // Set the k offset to be the starting k tile for this output tile
-    work_tile_info.K_idx = static_cast<int32_t>(tile_iter_start - true_tile_iter_start);
-
-    // Set the split count to be the number of k tiles in the output tile
-    work_tile_info.splits = params.k_tiles_per_output_tile_;
-
-    // Any checks for invalid work units should be done prior to this call
-    work_tile_info.is_valid_tile = true;
-
-    work_tile_info.k_tile_count = tile_iters;
-    work_tile_info.k_tile_remaining = unit_iters;
-
-    // Compute the epilogue if this unit of work contains the ending k iteration for
-    // the output tile in question
-    work_tile_info.is_final_split = (tile_iter_end == true_tile_iter_end);
   }
 
-  // Returns a WorkTileInfo to be computed for either the data-parallel or split-K
-  // work unit identified by the provided linear ID.
+  // Sets the current stream-K work to compute within work_tile_info. If new_unit is true, work_tile_info
+  // is populated as a new unit of work. Otherwise, state existing in work_tile_info (e.g., remaining
+  // iterations) is used to find the next tile in the current work unit.
   CUTLASS_DEVICE
-  static WorkTileInfo
-  set_non_stream_k_work(uint64_t linear_idx, Params const& params, bool is_split_k) {
+  static void
+  assign_work(
+    Params const& params,
+    uint64_t linear_idx,
+    dim3 block_id_in_cluster,
+    WorkTileInfo& work_tile_info,
+    uint32_t &unit_iter_start) {
 
-    // The linearized ID space is in terms of work units, rather than tiles. However,
-    // to compute the correct block offset for a data-parallel tile, we must convert
-    // the current ID to the data-parallel tile it corresponds to. Each data-parallel
-    // unit maps to a single data-parallel tile, but each stream-K unit can map to more
-    // than one tile. Thus, we must offset the work-unit ID among the data-parallel units
-    // by the total number of output tiles that will be computed by stream-K units.
-    //
-    // The logic below also works for the split-K case, in which sk_units_ and sk_tiles_
-    // are each 0.
-    uint64_t linear_work_idx = linear_idx - params.sk_units_ + params.sk_tiles_;
+    auto [cta_m_in_cluster, cta_n_in_cluster, _] =
+      get_current_work_cta_m_n_in_cluster(params, linear_idx, block_id_in_cluster);
 
-    // Map worker's linear index into the CTA-tiled problem shape to the corresponding MNL indices
-    uint64_t work_idx_l, remainder;
-    params.divmod_batch_(work_idx_l, remainder, linear_work_idx);
+    uint64_t output_tile_id = linear_idx;
+    if (linear_idx >= params.units_per_problem_ * params.divmod_splits_.divisor) {
+      // Separate-reduction work
+      auto cluster_size = params.get_cluster_size();
+      // Divide up the linearized separate reduction units into clusters
+      uint64_t cluster_linear_reduction_unit_idx = params.div_cluster_size((linear_idx - params.units_per_problem_));
+      uint64_t cluster_tile_idx, epi_subtile_idx;
+      params.divmod_epilogue_subtile_(cluster_tile_idx, epi_subtile_idx, cluster_linear_reduction_unit_idx);
+      // Bring the linearized tile ID back into the space of tiles, rather than clusters
+      output_tile_id = cluster_tile_idx * cluster_size;
 
-    uint64_t work_idx_k = 0;
-    if (is_split_k) {
-      params.divmod_k_(work_idx_k, remainder, remainder);
+      work_tile_info.setup_separate_reduction(epi_subtile_idx);
     }
+    else if (linear_idx >= params.sk_units_ && params.divmod_splits_.divisor == 1) {
+      // Data-parallel work
+      output_tile_id = linear_idx - params.sk_units_ + params.sk_tiles_;
+      work_tile_info.K_idx = 0;
+      work_tile_info.k_tile_count = params.divmod_tiles_per_output_tile_.divisor;
+      work_tile_info.k_tile_remaining = params.divmod_tiles_per_output_tile_.divisor;
+    }
+    else {
+      unit_iter_start = get_current_work_iter_start_possible_update_work_tile_k_remaining(params, linear_idx, work_tile_info);
+      output_tile_id = update_output_tile_id_and_work_tile_k(params, work_tile_info,
+        linear_idx, unit_iter_start, cta_m_in_cluster, cta_n_in_cluster);
+    }
+    update_work_tile_m_n_l(params, output_tile_id, work_tile_info, cta_m_in_cluster, cta_n_in_cluster);
+  }
 
-    uint64_t cta_per_grid_dim, dontcare;
-    params.divmod_cluster_shape_minor_(cta_per_grid_dim, dontcare, remainder);
+  // The fast path to get current output tile index then update fields of work tile info
+  // when continuing current work tile is needed, since k tile starting index has precomputed
+  // in the first time fetching current work tile.
+  CUTLASS_DEVICE
+  static void
+  fast_assign_work(
+    uint32_t unit_iter_start,
+    Params const& params,
+    uint64_t linear_idx,
+    dim3 block_id_in_cluster,
+    WorkTileInfo& work_tile_info) {
 
-    auto [work_idx_m, work_idx_n] = UnderlyingScheduler::get_work_idx_m_and_n(
-                                        cta_per_grid_dim,
-                                        params.divmod_cluster_shape_major_,
-                                        params.divmod_cluster_shape_minor_,
-                                        params.divmod_cluster_blk_major_,
-                                        params.log_swizzle_size_,
-                                        params.raster_order_);
+    auto [cta_m_in_cluster, cta_n_in_cluster, _] =
+      get_current_work_cta_m_n_in_cluster(params, linear_idx, block_id_in_cluster);
 
-    bool is_final_split = (work_idx_k == params.splits_ - 1);
+    uint64_t output_tile_id = update_output_tile_id_and_work_tile_k(params, work_tile_info,
+      linear_idx, unit_iter_start, cta_m_in_cluster, cta_n_in_cluster);
 
-    uint32_t k_tiles = params.k_tiles_per_output_tile_;
-    if (is_split_k) {
-      // Determine the number of iterations and starting iteration of this split.
-      // Doing so requires accounting for residual iterations, which are handled
-      // by the first big_units_ splits (with big_units_ = tiles % sm_count).
+    update_work_tile_m_n_l(params, output_tile_id, work_tile_info, cta_m_in_cluster, cta_n_in_cluster);
+  }
 
-      // Offsets for "normal" units. No additional k iterations are performed,
-      // and big_units_ "big" units preceded us, each of which performed one
-      // additional iteration. Thus, we must increase our split starting offset
-      // by big_units_.
-      int additional_k_tiles = 0;
-      int split_start_offset = params.big_units_;
+  // Returns the starting and ending peer ID of this tile
+  CUTLASS_HOST_DEVICE
+  static auto
+  tile_peer_range(Params const& params, uint32_t tile_idx, WorkTileInfo const& work_tile_info) {
+    uint32_t cur_k_tile = static_cast<uint32_t>(work_tile_info.K_idx);
+    uint32_t tile_idx_in_cluster_path = params.div_cluster_size(tile_idx);
+    uint32_t start_k_tile = params.divmod_tiles_per_output_tile_.divisor * tile_idx_in_cluster_path;
+    uint32_t end_k_tile = start_k_tile + params.divmod_tiles_per_output_tile_.divisor - 1;
+    uint32_t big_unit_k_tiles = params.big_units_ * (params.divmod_k_tiles_per_sk_unit_.divisor + 1);
 
-      if (work_idx_k < params.big_units_) {
-        // Offsets for "big" units. One additional k iteration is performed,
-        // and each split preceding us was a big unit, so we must increase
-        // our split starting offset by our split ID (work_idx_k).
-        additional_k_tiles = 1;
-        split_start_offset = work_idx_k;
+    auto adjust_unit = [&](uint32_t k_tile, uint32_t unit_idx, uint32_t unit_k_start, uint32_t unit_k_end) {
+      if (k_tile - start_k_tile < Params::min_iters_per_sk_unit_ &&
+          unit_k_end - start_k_tile < Params::min_iters_per_sk_unit_) {
+        // k_tile is within the first min_iters_per_sk_unit_ K tiles of this output tile,
+        // and the stream-K unit computes fewer than min_iters_per_sk_unit_ K tiles for this
+        // output tile. This work will thus be subsumed by the next stream-K unit.
+        ++unit_idx;
       }
 
-      // Set up k iteration count and split starting iteration assuming the
-      // iteration space is evenly split.
-      k_tiles /= params.splits_;
-      work_idx_k *= k_tiles;
-
-      // Apply any fixup needed to handle residuals
-      work_idx_k += split_start_offset;
-      k_tiles += additional_k_tiles;
-    }
-
-    return {
-      work_idx_m,
-      work_idx_n,
-      static_cast<int32_t>(work_idx_k),
-      static_cast<int32_t>(work_idx_l),
-      true,
-      params.k_tiles_per_output_tile_,
-      k_tiles,
-      k_tiles, // remaining iterations
-      is_final_split
+      if (end_k_tile + 1 - k_tile < Params::min_iters_per_sk_unit_ &&
+          end_k_tile + 1 - unit_k_start < Params::min_iters_per_sk_unit_) {
+        // k_tile is within the last min_iters_per_sk_unit_ K tiles of this output tile,
+        // and the stream-K unit computes fewer than min_iters_per_sk_unit_ K tiles for this
+        // output tile. This work will thus be subsumed by the previous stream-K unit.
+        --unit_idx;
+      }
+      return unit_idx;
     };
+
+    // Lambda to find the ID of the stream-K unit that computes this K tile
+    auto find_unit = [&](uint32_t k_tile) {
+      if (k_tile < big_unit_k_tiles) {
+        // The tile is within the "big unit range"
+        uint32_t unit_idx = params.divmod_k_tiles_per_sk_big_unit_.divide(k_tile);
+        uint32_t unit_k_start = unit_idx * params.divmod_k_tiles_per_sk_big_unit_.divisor;
+        uint32_t unit_k_end = unit_k_start + params.divmod_k_tiles_per_sk_big_unit_.divisor;
+        return static_cast<uint64_t>(adjust_unit(k_tile, unit_idx, unit_k_start, unit_k_end));
+      }
+      else {
+        // The tile is after the "big unit range." Account for this by finding the "normal unit"
+        // that it belongs to, and then offsetting by the number of big units
+        uint32_t unit_idx_after_big_units = params.divmod_k_tiles_per_sk_unit_.divide(k_tile - big_unit_k_tiles);
+        uint32_t unit_k_start = unit_idx_after_big_units * params.divmod_k_tiles_per_sk_unit_.divisor + (params.big_units_ * params.divmod_k_tiles_per_sk_big_unit_.divisor);
+        uint32_t unit_k_end = unit_k_start + params.divmod_k_tiles_per_sk_unit_.divisor;
+        uint32_t unit_idx = unit_idx_after_big_units + params.big_units_;
+        return static_cast<uint64_t>(adjust_unit(k_tile, unit_idx, unit_k_start, unit_k_end));
+      }
+    };
+
+    return cute::make_tuple(find_unit(start_k_tile), find_unit(start_k_tile + cur_k_tile), find_unit(end_k_tile));
   }
 };
 

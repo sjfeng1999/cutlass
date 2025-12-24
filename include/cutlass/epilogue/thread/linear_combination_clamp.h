@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -219,10 +219,10 @@ public:
 
     /// Clamping constant value
     ElementCompute const kClampMax =
-        ElementCompute(platform::numeric_limits<ElementOutput>::max());
+        ElementCompute(cutlass::platform::numeric_limits<ElementOutput>::max());
 
     ElementCompute const kClampMin =
-        ElementCompute(platform::numeric_limits<ElementOutput>::lowest());
+        ElementCompute(cutlass::platform::numeric_limits<ElementOutput>::lowest());
 
     intermediate = max_accumulator(intermediate, kClampMin);
     intermediate = min_accumulator(intermediate, kClampMax);
@@ -260,10 +260,10 @@ public:
 
     /// Clamping constant value
     ElementCompute const kClampMax =
-        ElementCompute(platform::numeric_limits<ElementOutput>::max());
+        ElementCompute(cutlass::platform::numeric_limits<ElementOutput>::max());
 
     ElementCompute const kClampMin =
-        ElementCompute(platform::numeric_limits<ElementOutput>::lowest());
+        ElementCompute(cutlass::platform::numeric_limits<ElementOutput>::lowest());
 
     intermediate = max_accumulator(intermediate, kClampMin);
     intermediate = min_accumulator(intermediate, kClampMax);
@@ -299,7 +299,7 @@ public:
   using ElementCompute = float;
 
   static_assert(
-      platform::numeric_limits<ElementOutput>::is_integer,
+      cutlass::platform::numeric_limits<ElementOutput>::is_integer,
       "This elementwise op expects the output to be int.");
 
   static int const kCount = Count;
@@ -432,17 +432,12 @@ public:
       intermediate = mul_add_accumulator(alpha_, converted_accumulator, intermediate);    // D = alpha * Accum + X
     }
 
-    // Convert floats back to INT
-    FragmentAccumulator scaled_accumulator;
+    //
+    // Convert float => ElementOutput_ with clamping
+    //
+    NumericArrayConverter<ElementOutput, ElementCompute, kCount, Round> destination_converter;
 
-    NumericArrayConverter<int, ElementCompute, kCount, Round> compute_converter;
-
-    scaled_accumulator = compute_converter(intermediate);
-
-    // Convert to destination numeric type
-    NumericArrayConverter<ElementOutput, int, kCount, Round> destination_converter;
-
-    return destination_converter(scaled_accumulator);
+    return destination_converter(intermediate);
   }
 
   /// Computes linear scaling: D = alpha * accumulator
@@ -466,17 +461,12 @@ public:
       intermediate = mul_add_accumulator(alpha_, converted_accumulator);    // D = alpha * Accum
     }
 
-    // Convert floats back to INT
-    FragmentAccumulator scaled_accumulator;
+    //
+    // Convert float => ElementOutput_ with clamping
+    //
+    NumericArrayConverter<ElementOutput, ElementCompute, kCount, Round> destination_converter;
 
-    NumericArrayConverter<int, ElementCompute, kCount, Round> compute_converter;
-
-    scaled_accumulator = compute_converter(intermediate);
-
-    // Convert to destination numeric type
-    NumericArrayConverter<ElementOutput, int, kCount, Round> destination_converter;
-
-    return destination_converter(scaled_accumulator);
+    return destination_converter(intermediate);
   }
 };
 
@@ -492,7 +482,6 @@ public:
 /// Note: The below method only when problem_size_K <= 256 for signed int8 gemm
 /// or problem_size_K <= 128 for unsigned int8 gemm. The default approach is
 /// above.
-/// TODO: Add logic to fallback to the default approach
 template <
     /// Data type used to load and store< tensors
     typename ElementOutput_,
@@ -509,7 +498,7 @@ class FastLinearCombinationClamp {
   using ElementCompute = float;
 
   static_assert(
-      platform::numeric_limits<ElementOutput>::is_integer,
+      cutlass::platform::numeric_limits<ElementOutput>::is_integer,
       "This elementwise op expects the output to be int.");
 
   static int const kCount = Count;

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,12 +38,8 @@
     computation lies in operator() with private member variables  {col_permute_, row_permute_ and stride_} as new addresses after permute op.
 */
 #pragma once
-#if defined(__CUDACC_RTC__)
-#include <cuda/std/cassert>
-#else
-#include "assert.h"
-#endif
 #include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(cassert)
 #include "cutlass/fast_math.h"
 #include "cutlass/layout/pitch_linear.h"
 #include "cutlass/layout/matrix.h"

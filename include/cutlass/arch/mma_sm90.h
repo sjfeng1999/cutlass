@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,36 +33,13 @@
 */
 
 #pragma once
-
-#if defined(__CUDACC_RTC__)
-#include <cuda/std/cassert>
-#else
-#include <assert.h>
-#endif
+#include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(cassert)
 
 #include "mma.h"
 #include "cutlass/layout/matrix.h"
 #include "cutlass/numeric_types.h"
-
-////////////////////////////////////////////////////////////////////////////////
-
-#if ((__CUDACC_VER_MAJOR__ > 11) || (__CUDACC_VER_MAJOR__ == 11 && __CUDACC_VER_MINOR__ >= 8))
-  #define CUTLASS_ARCH_MMA_SM90_F64_MMA_SUPPORTED
-  #if (!defined(CUTLASS_ARCH_MMA_SM90_F64_MMA_ENABLED))
-    #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-      #define CUTLASS_ARCH_MMA_SM90_F64_MMA_ENABLED
-    #endif
-  #endif
-#endif
-
-#if (__CUDACC_VER_MAJOR__ >= 12)
-  #define CUTLASS_ARCH_MMA_SM90_SUPPORTED
-  #if (!defined(CUTLASS_ARCH_MMA_SM90_ENABLED))
-    #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-      #define CUTLASS_ARCH_MMA_SM90_ENABLED
-    #endif
-  #endif
-#endif
+#include "cutlass/arch/config.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 

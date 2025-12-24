@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@
 
 #include <cute/config.hpp>
 
-#include <cute/tensor.hpp>
+#include <cute/tensor_impl.hpp>
 
 namespace cute
 {
@@ -43,15 +43,17 @@ namespace cute
 template <class Alpha,
           class XEngine, class XLayout,
           class Beta,
-          class YEngine, class YLayout>
+          class YEngine, class YLayout,
+          class PrdTensor = constant_fn<true_type>>
 CUTE_HOST_DEVICE
 void
 axpby(Alpha                    const& alpha,
       Tensor<XEngine, XLayout> const& x,
       Beta                     const& beta,
-      Tensor<YEngine, YLayout>     && y)
+      Tensor<YEngine, YLayout>     && y,
+      PrdTensor                const& p = {})
 {
-  return axpby(alpha, x, beta, y);
+  return axpby(alpha, x, beta, y, p);
 }
 
 //
@@ -60,19 +62,32 @@ axpby(Alpha                    const& alpha,
 template <class Alpha,
           class XEngine, class XLayout,
           class Beta,
-          class YEngine, class YLayout>
+          class YEngine, class YLayout,
+          class PrdTensor = constant_fn<true_type>>
 CUTE_HOST_DEVICE
 void
 axpby(Alpha                    const& alpha,
       Tensor<XEngine, XLayout> const& x,
       Beta                     const& beta,
-      Tensor<YEngine, YLayout>      & y)
+      Tensor<YEngine, YLayout>      & y,
+      PrdTensor                const& p = {})
 {
-  auto isBetaZero = (beta == Int<0>{});
+  auto isBetaZero = [&] () {
+    if constexpr (is_complex<Beta>::value) {
+      return beta.real() == Int<0>{} && beta.imag() == Int<0>{};
+    }
+    else {
+      return beta == Int<0>{};
+    }
+
+    CUTE_GCC_UNREACHABLE;
+  } ();
 
   CUTE_UNROLL
   for (int i = 0; i < size(x); ++i) {
-    y(i) = (isBetaZero ? alpha * x(i) : alpha * x(i) + beta * y(i));
+    if (p(i)) {
+      y(i) = (isBetaZero ? alpha * x(i) : alpha * x(i) + beta * y(i));
+    }
   }
 }
 

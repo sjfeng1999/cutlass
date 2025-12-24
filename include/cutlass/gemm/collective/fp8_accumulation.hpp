@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,10 +37,10 @@
 //////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////FP8 Accumulation///////////////////////////
 //////////////////////////////////////////////////////////////////////////////
-/// It would promote (add) the results from the tensor core accumulators to the
-/// main accumulators when the number of MMAs reaches the max number of MMA
-/// interval specified by user, after that the tensor core accumulators are
-/// zeroed.
+/// This class provides API to promote (add) or scale (multiply_add) the results 
+/// from the tensor core accumulators to the main accumulators when the number 
+/// of MMAs reaches the max number of MMA interval specified by user, after that
+/// the tensor core accumulators are zeroed.
 //////////////////////////////////////////////////////////////////////////////
 
 namespace cutlass::gemm::collective {
@@ -49,13 +49,13 @@ template <
     class EngineAccum,
     class LayoutAccum>
 struct GmmaFP8Accumulation {  
- using TensorAccum = cute::Tensor<EngineAccum, LayoutAccum>;
+  using TensorAccum = cute::Tensor<EngineAccum, LayoutAccum>;
+  using ElementAccumulator = typename EngineAccum::value_type;
 
   static_assert(is_static<LayoutAccum>::value, "Accumulator Layout should be static");
   static_assert(is_rmem<TensorAccum>::value , "Accumulator tensor must be rmem resident.");
 
 private:
-  TensorAccum& accum_;
   TensorAccum accum_temp_;
 
   uint32_t accum_promotion_interval_;         // defines the max num of executed MMAs after which accum should be promoted.
@@ -63,8 +63,11 @@ private:
   uint32_t mma_count_;                        // current executed MMAs
   uint32_t reset_accum_flag_;                 // accum needs to be zeroed or not. 
 
+  // promote or `add` the partial accumulators to main accumulator (FADD).
+  template <class TensorAccumOrig>
   CUTLASS_DEVICE
-  void promote_core() {
+  void promote_core(TensorAccumOrig &accum_) {
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(accum_temp_));
     warpgroup_wait<0>();
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < size(accum_); ++i) {
@@ -72,20 +75,80 @@ private:
     }
   }
 
+  // `multiply` scale the partial accumulators and `add` to main accumulator (FFMA).
+  template <class TensorAccumOrig>
+  CUTLASS_DEVICE
+  void scale_core(TensorAccumOrig &accum_, ElementAccumulator const &scale) {
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(accum_temp_));
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < size(accum_); ++i) {
+      accum_(i) += accum_temp_(i) * scale;
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScale,
+    class LayoutScale>
+  CUTLASS_DEVICE
+  void scale_core(TensorAccumOrig &accum_, const cute::Tensor<EngineScale, LayoutScale> &scale) {
+    using TensorScale = cute::Tensor<EngineScale, LayoutScale>;
+
+    static_assert(is_static<LayoutScale>::value, "Scale Layout should be static");
+    static_assert(is_rmem<TensorScale>::value , "Scale tensor must be rmem resident.");
+
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(accum_temp_));
+
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < size(accum_); ++i) {
+      accum_(i) += accum_temp_(i) * scale(i);
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScaleA,
+    class LayoutScaleA,
+    class EngineScaleB,
+    class LayoutScaleB>
+  CUTLASS_DEVICE
+  void scale_core(TensorAccumOrig &accum_, const cute::Tensor<EngineScaleA, LayoutScaleA> &scaleA, const cute::Tensor<EngineScaleB, LayoutScaleB> &scaleB) {
+    using TensorScaleA = cute::Tensor<EngineScaleA, LayoutScaleA>;
+    using TensorScaleB = cute::Tensor<EngineScaleB, LayoutScaleB>;
+
+    static_assert(is_static<LayoutScaleA>::value, "ScaleA Layout should be static");
+    static_assert(is_static<LayoutScaleB>::value, "ScaleB Layout should be static");
+    static_assert(is_rmem<TensorScaleA>::value, "ScaleA tensor must be rmem resident.");
+    static_assert(is_rmem<TensorScaleB>::value, "ScaleB tensor must be rmem resident.");
+
+
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(accum_temp_));
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(scaleA));
+    CUTE_STATIC_ASSERT_V(size(accum_) == size(scaleB));
+
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < size(accum_); ++i) {
+      accum_(i) += accum_temp_(i) * scaleA(i) * scaleB(i);
+    }
+  }
+
 public:
   CUTLASS_DEVICE
   GmmaFP8Accumulation(
-      TensorAccum &accum,
+      TensorAccum &accum_temp,
       uint32_t accum_promotion_interval,
       uint32_t mma_count_per_mainloop_iteration)
-      : accum_(accum), 
+      : accum_temp_(accum_temp),
         accum_promotion_interval_(accum_promotion_interval),
         mma_count_per_mainloop_iteration_(mma_count_per_mainloop_iteration),
         mma_count_(0), 
         reset_accum_flag_(0) 
   {
-    accum_temp_ = cute::make_fragment_like(accum);
   }
+
+  //
+  // Methods (Common)
+  //
 
   CUTLASS_DEVICE 
   TensorAccum& operator()() {
@@ -98,22 +161,134 @@ public:
     return reset_accum_flag_;
   }
 
+  //
+  // Methods (for FADD version)
+  //
+
   /// promote (add) the results from the MMA accumulators to main accumulator if needed.
+  template <class TensorAccumOrig>
   CUTLASS_DEVICE
-  void promote_if_needed() {
+  void promote_if_needed(TensorAccumOrig &accum_) {
     mma_count_ += mma_count_per_mainloop_iteration_;
     reset_accum_flag_ = __shfl_sync(0xffffffff, mma_count_ == accum_promotion_interval_, 0);
     if (reset_accum_flag_) {
-      promote_core();
+      promote_core(accum_);
       mma_count_ = 0;
     }
   }
 
   /// promote (add) the residue results from the MMA accumulators to main accumulator if needed.
+  template <class TensorAccumOrig>
   CUTLASS_DEVICE
-  void promote_residue_if_needed() {
+  void promote_residue_if_needed(TensorAccumOrig &accum_) {
     if (__shfl_sync(0xffffffff, mma_count_ > 0, 0)) {
-      promote_core();
+      promote_core(accum_);
+    }
+  }
+
+  //
+  // Methods (for FFMA version)
+  //
+
+  /// scale (multiply_add) the results from the MMA accumulators to main accumulator if needed.
+  template <class TensorAccumOrig>
+  CUTLASS_DEVICE
+  void scale_if_needed(TensorAccumOrig &accum_, ElementAccumulator const &scale) {
+    mma_count_ += mma_count_per_mainloop_iteration_;
+    reset_accum_flag_ = __shfl_sync(0xffffffff, mma_count_ == accum_promotion_interval_, 0);
+    if (reset_accum_flag_) {
+      scale_core(accum_, scale);
+      mma_count_ = 0;
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScale,
+    class LayoutScale>
+  CUTLASS_DEVICE
+  void scale_if_needed(TensorAccumOrig &accum_, const cute::Tensor<EngineScale, LayoutScale> &scale) {
+    mma_count_ += mma_count_per_mainloop_iteration_;
+    reset_accum_flag_ = __shfl_sync(0xffffffff, mma_count_ == accum_promotion_interval_, 0);
+    if (reset_accum_flag_) {
+      scale_core(accum_, scale);
+      mma_count_ = 0;
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScaleA,
+    class LayoutScaleA,
+    class EngineScaleB,
+    class LayoutScaleB>
+  CUTLASS_DEVICE
+  void scale_if_needed(TensorAccumOrig &accum_, const cute::Tensor<EngineScaleA, LayoutScaleA> &scaleA, const cute::Tensor<EngineScaleB, LayoutScaleB> &scaleB) {
+    mma_count_ += mma_count_per_mainloop_iteration_;
+    reset_accum_flag_ = __shfl_sync(0xffffffff, mma_count_ == accum_promotion_interval_, 0);
+    if (reset_accum_flag_) {
+      scale_core(accum_, scaleA, scaleB);
+      mma_count_ = 0;
+    }
+  }
+  
+  /// scale (multiply_add) the results from the MMA accumulators to main accumulator without checking the counter.
+  template <class TensorAccumOrig>
+  CUTLASS_DEVICE
+  void scale(TensorAccumOrig &accum_, ElementAccumulator const &scale) {
+    scale_core(accum_, scale);
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScale,
+    class LayoutScale>
+  CUTLASS_DEVICE
+  void scale(TensorAccumOrig &accum_, const cute::Tensor<EngineScale, LayoutScale> &scale) {
+    scale_core(accum_, scale);
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScaleA,
+    class LayoutScaleA,
+    class EngineScaleB,
+    class LayoutScaleB>
+  CUTLASS_DEVICE
+  void scale(TensorAccumOrig &accum_, const cute::Tensor<EngineScaleA, LayoutScaleA> &scaleA, const cute::Tensor<EngineScaleB, LayoutScaleB> &scaleB) {
+    scale_core(accum_, scaleA, scaleB);
+  }
+
+  /// scale (multiply_add) the residue results from the MMA accumulators to main accumulator if needed.
+  template <class TensorAccumOrig>
+  CUTLASS_DEVICE
+  void scale_residue_if_needed(TensorAccumOrig &accum_, ElementAccumulator const &scale) {
+    if (__shfl_sync(0xffffffff, mma_count_ > 0, 0)) {
+      scale_core(accum_, scale);
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScale,
+    class LayoutScale>
+  CUTLASS_DEVICE
+  void scale_residue_if_needed(TensorAccumOrig &accum_, const cute::Tensor<EngineScale, LayoutScale> &scale) {
+    if (__shfl_sync(0xffffffff, mma_count_ > 0, 0)) {
+      scale_core(accum_, scale);
+    }
+  }
+
+  template <
+    class TensorAccumOrig,
+    class EngineScaleA,
+    class LayoutScaleA,
+    class EngineScaleB,
+    class LayoutScaleB>
+  CUTLASS_DEVICE
+  void scale_residue_if_needed(TensorAccumOrig &accum_, const cute::Tensor<EngineScaleA, LayoutScaleA> &scaleA, const cute::Tensor<EngineScaleB, LayoutScaleB> &scaleB) {
+    if (__shfl_sync(0xffffffff, mma_count_ > 0, 0)) {
+      scale_core(accum_, scaleA, scaleB);
     }
   }
 };

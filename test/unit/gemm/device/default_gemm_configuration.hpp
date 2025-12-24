@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -169,7 +169,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
       Layout<Shape<_2,_2,_1>>,  // 2x2x1 thread group
-      Layout<Shape<_1,_2,_1>>>; // 1x2x1 value group for 16x16x16 MMA and LDSM
+      Tile<_32,_32,_16>>;       // 32x32x16 MMA for LDSM, 1x2x1 value group
 
   // A
   static constexpr int kAlignmentA = 8;
@@ -199,6 +199,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    float,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<float, 1, float, float>,
@@ -301,7 +302,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
       Layout<Shape<_2,_2,_1>, Stride<_2, _1, _1>>, // 2x2x1 thread group
-      Layout<Shape<_1,_2,_1>>>;                    // 1x2x1 value group for 16x16x8 and LDSM
+      Tile<_32,_32,_8>>;                           // 32x32x8 MMA for LDSM, 1x2x1 value group
 
   // A
   static constexpr int kAlignmentA = 4;
@@ -331,6 +332,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    float,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<float, 1, float, float>,
@@ -352,7 +354,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_16x8x32_S32S8S8S32_TN>,
       Layout<Shape<_2,_2,_1>>,   // 2x2x1 thread group
-      Layout<Shape<_1,_2,_1>>>;  // 1x2x1 value group for 16x16x32 and LDSM
+      Tile<_32,_32,_32>>;        // 16x16x32 MMA for LDSM, 1x2x1 value group
 
   // A (M,K)  K-major
   using SmemLayoutAtomA = decltype(
@@ -398,6 +400,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
   >;
 
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    int32_t,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<int32_t, 1, int32_t, int32_t>,
@@ -506,6 +509,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, ElementAccumulator, ElementAccumulator>,
@@ -582,6 +586,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, int32_t, int32_t>,
@@ -646,6 +651,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, int32_t, int32_t>,
@@ -708,6 +714,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, int32_t, int32_t>,
@@ -770,6 +777,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, int32_t, int32_t>,
@@ -798,9 +806,9 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using DispatchPolicy = MainloopSm80CpAsync<3>;
   using TiledMma = TiledMMA<
       MMA_Atom<UniversalFMA<ElementAccumulator, ElementA, ElementB, ElementC>>,
-      Layout<Shape<_16, _16, _1>>,
-      Layout<Shape< _2,  _2, _1>>,
-      Tile<Layout<_2,_16>,Layout<_2,_16>,Underscore>>;
+      Layout<Shape<_16, _16, _1>>,                            // 16x16x1 thread group
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,               // 32x32x1 MMA with perm for load vectorization
+           Layout<Shape<_16,_2>,Stride<_2,_1>>,Underscore>>;
 
   // A (M,K)  M-major
   using SmemLayoutAtomA = Layout<Shape<_128,_16>>;
@@ -834,6 +842,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, ElementAccumulator, ElementAccumulator>,
@@ -894,6 +903,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, ElementAccumulator, ElementAccumulator>,
@@ -920,9 +930,8 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using DispatchPolicy = MainloopSm80CpAsync<3>;
   using TiledMma = TiledMMA<
       MMA_Atom<UniversalFMA<ElementAccumulator, ElementA, ElementB, ElementC>>,
-      Layout<Shape<_16, _16, _1>>,
-      Layout<Shape< _2,  _1, _1>>,
-      Tile<Layout<_2,_16>,Underscore,Underscore>>;
+      Layout<Shape<_16, _16, _1>>,                                      // 16x16x1 thread group
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,Underscore,Underscore>>; // 32x16x1 MMA with perm for load vectorization
 
   // A (M,K)  M-major
   using SmemLayoutAtomA = Layout<Shape<_128,_16>>;
@@ -956,6 +965,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, ElementAccumulator, ElementAccumulator>,
@@ -982,9 +992,8 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using DispatchPolicy = MainloopSm80CpAsync<3>;
   using TiledMma = TiledMMA<
       MMA_Atom<UniversalFMA<ElementAccumulator, ElementA, ElementB, ElementC>>,
-      Layout<Shape<_16, _16, _1>>,
-      Layout<Shape< _1,  _2, _1>>,
-      Tile<Underscore,Layout<_2,_16>,Underscore>>;
+      Layout<Shape<_16, _16, _1>>,                                      // 16x16x1 thread group
+      Tile<Underscore,Layout<Shape<_16,_2>,Stride<_2,_1>>,Underscore>>; // 16x32x1 MMA with perm for load vectorization
 
   // A (M,K)  K-major
   using SmemLayoutAtomA = Layout<Shape <_128,          _16>,
@@ -1018,6 +1027,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    ElementC,
     TagToStrideC_t<LayoutC>,
     TagToStrideC_t<LayoutC>,
     epilogue::thread::LinearCombination<ElementC, 1, ElementAccumulator, ElementAccumulator>,
@@ -1041,8 +1051,9 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_8x8x4_F64F64F64F64_TN>,            // Atom
       Layout<Shape<_2,_2,_1>>,                         // Atom layout
-      Layout<Shape<_2,_2,_1>>,                         // Val layout
-      Tile<Layout<_2,_16>,Layout<_2,_16>,Underscore>>; // Mode permutations
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,        // 32x32x4 MMA with perm for load vectorization
+           Layout<Shape<_16,_2>,Stride<_2,_1>>,
+           Underscore>>;
 
   // A  (M,K)  K-Major
   using SmemLayoutAtomA = decltype(
@@ -1082,6 +1093,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    double,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     epilogue::thread::LinearCombination<double, 1, double, double>,
@@ -1119,8 +1131,9 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_8x8x4_F64F64F64F64_TN>,            // Atom
       Layout<Shape<_2,_2,_1>>,                         // Atom layout
-      Layout<Shape<_2,_2,_1>>,                         // Val layout
-      Tile<Layout<_2,_16>,Layout<_2,_16>,Underscore>>; // Mode permutations
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,        // 32x32x4 MMA with perm for load vectorization
+           Layout<Shape<_16,_2>,Stride<_2,_1>>,
+           Underscore>>;
 
   // A  (M,K)  M-Major
   using SmemLayoutAtomA = decltype(
@@ -1160,6 +1173,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    double,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     epilogue::thread::LinearCombination<double, 1, double, double>,
@@ -1183,8 +1197,9 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_8x8x4_F64F64F64F64_TN>,            // Atom
       Layout<Shape<_2,_2,_1>>,                         // Atom layout
-      Layout<Shape<_2,_2,_1>>,                         // Val layout
-      Tile<Layout<_2,_16>,Layout<_2,_16>,Underscore>>; // Mode permutations
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,        // 32x32x4 MMA with perm for load vectorization
+           Layout<Shape<_16,_2>,Stride<_2,_1>>,
+           Underscore>>;
 
   // A  (M,K)  M-Major
   using SmemLayoutAtomA = decltype(
@@ -1224,6 +1239,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    double,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     epilogue::thread::LinearCombination<double, 1, double, double>,
@@ -1247,8 +1263,9 @@ struct DefaultGemmConfigurationToCutlass3Types<
   using TiledMma = TiledMMA<
       MMA_Atom<SM80_8x8x4_F64F64F64F64_TN>,            // Atom
       Layout<Shape<_2,_2,_1>>,                         // Atom layout
-      Layout<Shape<_2,_2,_1>>,                         // Val layout
-      Tile<Layout<_2,_16>,Layout<_2,_16>,Underscore>>; // Mode permutations
+      Tile<Layout<Shape<_16,_2>,Stride<_2,_1>>,        // 32x32x4 MMA with perm for load vectorization
+           Layout<Shape<_16,_2>,Stride<_2,_1>>,
+           Underscore>>;
 
   // A  (M,K)  K-Major
   using SmemLayoutAtomA = decltype(
@@ -1288,6 +1305,7 @@ struct DefaultGemmConfigurationToCutlass3Types<
 
   // Epilogue
   using CollectiveEpilogue = epilogue::collective::DefaultEpilogue<
+    double,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     TagToStrideC_t<cutlass::layout::ColumnMajor>,
     epilogue::thread::LinearCombination<double, 1, double, double>,

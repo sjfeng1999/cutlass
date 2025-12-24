@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,14 +38,9 @@
 */
 
 #pragma once
-
-#if defined(__CUDACC_RTC__)
-#include <cuda/std/cassert>
-#else
-#include <assert.h>
-#endif
-
 #include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(cassert)
+
 #include "cutlass/numeric_types.h"
 #include "cutlass/array.h"
 #include "cutlass/layout/vector.h"
@@ -478,6 +473,12 @@ public:
     // Iterate over accumulator tile
     //
 
+    #ifdef __clang__
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wcuda-compat"
+    // Turn off clangs warning about loop unroll argument using parens.
+    #endif
+
     #pragma unroll(IterationsUnroll ? OutputTileIterator::kIterations : 1)
     for (int iter = 0; iter < OutputTileIterator::kIterations; ++iter)
     {
@@ -512,25 +513,29 @@ public:
           shared_load_iterator_.add_pointer_offset(kSmemPointerOffset);
           shared_load_iterator_.load(aligned_accum_fragment[i]);
           aligned_accum_fragment[0] = add_fragments(aligned_accum_fragment[0], aligned_accum_fragment[i]);
-          }
-
-          shared_load_iterator_.add_pointer_offset((1 - kPartitionsK) * kSmemPointerOffset);
         }
 
-        //
-        // Compute the output result
-        //
+        shared_load_iterator_.add_pointer_offset((1 - kPartitionsK) * kSmemPointerOffset);
+      }
 
-        typename OutputTileIterator::Fragment output_fragment;
-        source.apply_output_operator(output_fragment, output_op, aligned_accum_fragment[0]);
+      //
+      // Compute the output result
+      //
 
-        //
-        // Store the final result
-        //
+      typename OutputTileIterator::Fragment output_fragment;
+      source.apply_output_operator(output_fragment, output_op, aligned_accum_fragment[0]);
 
-        destination_iterator.store(output_fragment);
-        ++destination_iterator;
+      //
+      // Store the final result
+      //
+
+      destination_iterator.store(output_fragment);
+      ++destination_iterator;
     }
+    
+    #ifdef __clang__
+    #pragma clang diagnostic pop
+    #endif
   }
 };
 

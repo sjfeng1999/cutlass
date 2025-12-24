@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -64,7 +64,7 @@ ElementComputeEpilogue (int32_t), ElementInputA (int8_t), ElementInputB (int8_t)
 (int32_t). Communicating just the data type is not enough. As the data is laid out linearly in
 memory, we have to convey the layout of matrices. We do that by initializing template variable
 LayoutInputA to column major cutlass variable, LayoutInputB to row major and LayoutOutput to row
-major. Next, we setup rules to comptue alpha * X + beta * C which is called epilogue of the kernel.
+major. Next, we setup rules to compute alpha * X + beta * C which is called epilogue of the kernel.
 We initialize template variable EpilogueOp, which takes the data type of output ElementOutput
 (int32_t), the number of elements per vector memory access (16), data type of accumulator (int32_t)
 and data type of computation of linear combination (alpha * X + beta * C).
@@ -140,8 +140,8 @@ using ElementInputA = int8_t;                       // <- data type of elements 
 using ElementInputB = int8_t;                       // <- data type of elements in input matrix B
 using ElementOutput = int32_t;                      // <- data type of elements in output matrix D
 
-// The code section below describes matrix layout of input and output matrices. Column Major for
-// Matrix A, Row Major for Matrix B and Row Major for Matrix C
+// The code section below describes matrix layout of input and output matrices. Row Major for
+// Matrix A, Column Major for Matrix B and Row Major for Matrix C
 using LayoutInputA = cutlass::layout::RowMajor;
 using LayoutInputB = cutlass::layout::ColumnMajor;
 using LayoutOutput = cutlass::layout::RowMajor;
@@ -161,7 +161,7 @@ using ShapeMMAWarp = cutlass::gemm::GemmShape<64, 64, 64>;  // <- warp tile M = 
 using ShapeMMAOp = cutlass::gemm::GemmShape<8, 8, 16>;  // <- MMA Op tile M = 8, N = 8, K = 16
 
 // This code section describes how threadblocks are scheduled on GPU
-using SwizzleThreadBlock = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>;  // <- ??
+using SwizzleThreadBlock = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>;
 
 // This code section describes the epilogue part of the kernel
 using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
@@ -355,4 +355,3 @@ int main() {
 
   return run();
 }
-

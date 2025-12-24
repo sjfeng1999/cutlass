@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@
   \brief Example of a Hopper gather+GEMM+scatter kernel fusion.
 
   This example fuses gather before GEMM and scatter after GEMM into the same
-  GEMM kernel. Gather and scatter operation is controled by an index vector
+  GEMM kernel. Gather and scatter operation is controlled by an index vector
   to select rows or columns from A, B, C or D matrices.
 
   Gather/scatter operations are always performed along a strided dimension 
@@ -45,17 +45,17 @@
   and BEFORE scatter operations are applied.
 */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <time.h>
-#include <math.h>
-#include <assert.h>
-#include <cuda_runtime.h>
-
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
+#include <cmath>
+#include <cassert>
 #include <algorithm>
 #include <iostream>
 #include <random>
 #include <numeric>
+
+#include <cuda_runtime.h>
 
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm_universal.h"
@@ -64,7 +64,6 @@
 #include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
 #include "cutlass/epilogue/collective/default_epilogue.hpp"
-
 #include "cutlass/util/command_line.h"
 #include "cutlass/util/device_memory.h"
 #include "cutlass/util/packed_stride.hpp"
@@ -93,7 +92,7 @@ struct Options {
   int mode = 1; // N-mode gather/scatter by default
 
   float alpha = 1.0f;
-  float beta = 1.0f;
+  float beta  = 0.0f;
 
   bool reference_check = true;
   int iterations = 20;
@@ -179,19 +178,27 @@ struct ExampleRunner
 {
   // Useful aliases
 
+  using ProblemShape = Shape<int,int,int,int>;
+
+  using StrideA = cutlass::gemm::TagToStrideA_t<LayoutA>;
+  using StrideB = cutlass::gemm::TagToStrideB_t<LayoutB>;
+  using StrideC = cutlass::gemm::TagToStrideC_t<LayoutC>;
+  using StrideD = cutlass::gemm::TagToStrideC_t<LayoutD>;
+
   // Alias to for the epilogue type that supports gather/scatter
-  using Epilogue = cutlass::epilogue::collective::EpilogueGatherScatter<
-    cutlass::gemm::TagToStrideC_t<LayoutC>,
-    cutlass::gemm::TagToStrideC_t<LayoutD>,
-    cutlass::epilogue::thread::LinearCombination<
-      ElementD, 1,
-      ElementAccumulator, ElementComputeEpilogue,
-      cutlass::epilogue::thread::ScaleType::Default,
-      cutlass::FloatRoundStyle::round_to_nearest, ElementC
-    >,
-    cutlass::gemm::EpilogueDefault,
-    GatherC,
-    ScatterD
+  using Epilogue = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
+    cutlass::epilogue::collective::EpilogueGatherScatter<
+      StrideC, StrideD,
+      cutlass::epilogue::thread::LinearCombination<
+        ElementD, 1,
+        ElementAccumulator, ElementComputeEpilogue,
+        cutlass::epilogue::thread::ScaleType::Default,
+        cutlass::FloatRoundStyle::round_to_nearest, ElementC
+      >,
+      cutlass::gemm::EpilogueDefault,
+      GatherC,
+      ScatterD
+    >
   >;
 
   // Alias to for the mainloop type
@@ -202,26 +209,20 @@ struct ExampleRunner
     ElementAccumulator,
     Shape<_128,_128,_64>,
     Shape<_1,_1,_1>,
-    cutlass::gemm::collective::StageCount<5>,
-    cutlass::gemm::KernelMultistage
+    cutlass::gemm::collective::StageCountAuto,
+    cutlass::gemm::KernelCpAsyncWarpSpecialized
   >::CollectiveOp;
-
-  using ProblemShape = Shape<int,int,int,int>;
 
   using Kernel = cutlass::gemm::kernel::GemmGather<
     ProblemShape,
     Mainloop,
     Epilogue,
+    void,
     GatherA,
     GatherB
   >;
 
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<Kernel>;
-
-  using StrideA = typename Kernel::StrideA;
-  using StrideB = typename Kernel::StrideB;
-  using StrideC = typename Kernel::StrideC;
-  using StrideD = typename Kernel::StrideD;
 
   static constexpr bool DoGatherA  = not cutlass::platform::is_same<GatherA,  NoGather>::value;
   static constexpr bool DoGatherB  = not cutlass::platform::is_same<GatherB,  NoGather>::value;
@@ -250,16 +251,19 @@ struct ExampleRunner
 
   using MainloopRef = Mainloop;
 
-  using EpilogueRef = typename cutlass::epilogue::collective::DefaultEpilogue<
-    StrideC, StrideD,
-    typename Epilogue::ThreadEpilogueOp,
-    typename Epilogue::EpilogueSchedule
+  using EpilogueRef = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
+    cutlass::epilogue::collective::DefaultEpilogue<
+      ElementC, StrideC, StrideD,
+      typename Epilogue::ThreadEpilogueOp,
+      typename Epilogue::EpilogueSchedule
+    >
   >;
 
   using KernelRef = cutlass::gemm::kernel::GemmUniversal<
-      ProblemShape,
-      MainloopRef,
-      EpilogueRef
+    ProblemShape,
+    MainloopRef,
+    EpilogueRef,
+    void
   >;
 
   using GemmRef = cutlass::gemm::device::GemmUniversalAdapter<KernelRef>;
@@ -284,14 +288,16 @@ struct ExampleRunner
     ElementAccumulator,
     Shape<_128,_128,_64>,
     Shape<_2,_2,_1>,
-    cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename EpilogueOpt::SharedStorage)>,
+    cutlass::gemm::collective::StageCountAutoCarveout<
+      static_cast<int>(sizeof(typename EpilogueOpt::SharedStorage))>,
     cutlass::gemm::collective::KernelScheduleAuto
   >::CollectiveOp;
 
   using KernelOpt = cutlass::gemm::kernel::GemmUniversal<
-      ProblemShape,
-      MainloopOpt,
-      EpilogueOpt
+    ProblemShape,
+    MainloopOpt,
+    EpilogueOpt,
+    void
   >;
 
   using GemmOpt = cutlass::gemm::device::GemmUniversalAdapter<KernelOpt>;
@@ -404,6 +410,7 @@ struct ExampleRunner
         typename Epilogue::ScatterD{gather_indices.get()}
       },
       hw_info,
+      {},
       typename Kernel::GatherA{gather_indices.get()},
       typename Kernel::GatherB{gather_indices.get()}
     },
@@ -526,7 +533,8 @@ struct ExampleRunner
 
     // Forward calls via lambda to avoid specifying template arguments
     auto gather_call = [](auto&&... args){ gather(static_cast<decltype(args)&&>(args)...); };
-    auto scatter_call = [](auto&&... args){ scatter(static_cast<decltype(args)&&>(args)...); };
+    // MSVC doesn't count use inside a false "if constexpr" branch.
+    [[maybe_unused]] auto scatter_call = [](auto&&... args){ scatter(static_cast<decltype(args)&&>(args)...); };
 
     if constexpr (DoGatherA) {
       run_gather(gather_call, tensor_a, tensor_a_gathered, arguments.gather_A, problem_size.batch(), stride_A);
@@ -560,7 +568,7 @@ struct ExampleRunner
     if (options.reference_check) {
       if (!verify()) {
         std::cout << "Failed validation" << std::endl;
-#if 1
+#if 0
         debug_output(std::cout);
 #endif
         return false;
@@ -618,6 +626,12 @@ int main(int argc, const char ** argv) {
     std::cerr << "This example requires a device with compute capability 90 or higher.\n";
     notSupported = true;
   }
+  
+  else if (props.major != 9 || props.minor != 0) {
+    std::cerr << "This example requires a GPU of NVIDIA's Hopper Architecture (compute capability 90).\n";
+    notSupported = true;
+  }
+  
 
   if (notSupported) {
     return EXIT_SUCCESS; // Do not fail CI checks on unsupported systems

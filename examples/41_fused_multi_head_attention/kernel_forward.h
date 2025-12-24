@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,7 +12,7 @@
  * this list of conditions and the following disclaimer in the documentation
  * and/or other materials provided with the distribution.
  *
- * 3. Neither the name of the copyright holdvr nor the names of its
+ * 3. Neither the name of the copyright holder nor the names of its
  * contributors may be used to endorse or promote products derived from
  * this software without specific prior written permission.
  *
@@ -38,9 +38,9 @@
 
 #include <curand_kernel.h>
 #include <cmath>
+#include <cinttypes>
 #include <vector>
 
-#include "cutlass/bfloat16.h"
 #include "cutlass/fast_math.h"
 #include "cutlass/gemm/gemm.h"
 #include "cutlass/layout/matrix.h"
@@ -71,8 +71,6 @@
 #include "gemm/mma_from_smem.h"
 #include "gemm_kernel_utils.h"
 #include "transform/tile_smem_loader.h"
-
-#include <inttypes.h>
 
 using namespace gemm_kernel_utils;
 
@@ -733,7 +731,7 @@ struct AttentionKernel {
 
       auto prologueV = [&](int blockN) {
         typename MM1::Mma::IteratorB iterator_V(
-            typename MM1::IteratorB::Params{MM1::LayoutB(p.v_strideM)},
+            typename MM1::IteratorB::Params{typename MM1::LayoutB(p.v_strideM)},
             p.value_ptr + iter_key_start * p.v_strideM,
             {problem_size_1_k, problem_size_1_n},
             thread_id(),
@@ -997,7 +995,7 @@ struct AttentionKernel {
         }
 
         typename MM1::Mma::IteratorB iterator_V(
-            typename MM1::IteratorB::Params{MM1::LayoutB(p.v_strideM)},
+            typename MM1::IteratorB::Params{typename MM1::LayoutB(p.v_strideM)},
             p.value_ptr + iter_key_start * p.v_strideM,
             {problem_size_1_k, problem_size_1_n},
             thread_id(),
@@ -1037,15 +1035,15 @@ struct AttentionKernel {
                       using EpilogueOutputOp = typename cutlass::epilogue::
                           thread::MemoryEfficientAttentionNormalize<
                               typename cutlass::platform::conditional<
-                                  kIsLast,
+                                  kIsLast::value,
                                   output_t,
                                   output_accum_t>::type,
                               output_accum_t,
                               DefaultOp::kCount,
                               typename DefaultOp::ElementAccumulator,
                               ElementCompute,
-                              kIsFirst,
-                              kIsLast,
+                              kIsFirst::value,
+                              kIsLast::value,
                               cutlass::Array<ElementCompute, kQueriesPerBlock>>;
                       using Epilogue = typename cutlass::epilogue::threadblock::
                           EpiloguePipelined<
@@ -1053,7 +1051,7 @@ struct AttentionKernel {
                               typename MM1::Mma::Operator,
                               DefaultEpilogue::kPartitionsK,
                               typename cutlass::platform::conditional<
-                                  kIsLast,
+                                  kIsLast::value,
                                   typename MM1::OutputTileIterator,
                                   typename MM1::OutputTileIteratorAccum>::type,
                               typename DefaultEpilogue::
@@ -1071,7 +1069,7 @@ struct AttentionKernel {
                       int col = blockN * MM1::Mma::Shape::kN;
                       auto source_iter = createOutputAccumIter(col);
                       auto dest_iter = call_conditional<
-                          kIsLast,
+                          kIsLast::value,
                           decltype(createOutputIter),
                           decltype(createOutputAccumIter)>::
                           apply(createOutputIter, createOutputAccumIter, col);

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,21 +35,25 @@
     This example demonstrate a simple way to instantiate and run a FP8 GEMM using the new CUTLASS 3.0
     APIs on NVIDIA Hopper architecture. New features that will be showcased in this example are as follows:
 
-    1. NVIDIA Hopper architecture introduces a new series of tensor core instructions (GMMA) 
+    1. NVIDIA Hopper architecture introduces a new series of tensor core instructions (GMMA)
     which are more efficient than the Ampere tensor core instructions.
 
-    2. NVIDIA Hopper architecture includes new Tensor Memory Accelerator (TMA) unit to transfer large 
+    2. NVIDIA Hopper architecture includes new Tensor Memory Accelerator (TMA) unit to transfer large
     blocks of data efficiently between global memory and shared memory. TMA also supports asynchronous
     copies between thread blocks in a cluster.
 
     3. This example uses the Warp Specialized kernel design (see /media/docs/efficient_gemm.md for details).
 
-    4. This example shows all important fusions used by FP8 gemm kernels, 
+    4. This example shows all important fusions used by FP8 gemm kernels,
     i.e., scale factor for A, B, C, D tensor, the abs_max value of D tensor.
+
+    5. A simple way to tune the CTA rasterization direction and swizzle pattern of Hopper kernels. Both the
+    CTA rasterization direction and swizzle pattern impact cross-CTA locality of accesses. By tuning we can
+    improve performance.
 
     Examples:
 
-      $ ./examples/54_hopper_fp8_warp_specialized_gemm/54_hopper_fp8_warp_specialized_gemm --m=2048 --n=2048 --k=2048
+      $ ./examples/54_hopper_fp8_warp_specialized_gemm/54_hopper_fp8_warp_specialized_gemm --m=2048 --n=2048 --k=2048 --rasterization=N --swizzle=2
 */
 
 #include <iostream>
@@ -63,6 +67,7 @@
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/gemm/kernel/tile_scheduler_params.h"
 #include "cutlass/epilogue/dispatch_policy.hpp"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
 
@@ -95,7 +100,7 @@ using         LayoutA     = cutlass::layout::RowMajor;                      // L
 constexpr int AlignmentA  = 128 / cutlass::sizeof_bits<ElementA>::value;    // Memory access granularity/alignment of A matrix in units of elements (up to 16 bytes)
 
 // B matrix configuration
-using         ElementB    = cutlass::float_e5m2_t;                          // Element type for B matrix operand
+using         ElementB    = cutlass::float_e4m3_t;                          // Element type for B matrix operand
 using         LayoutB     = cutlass::layout::ColumnMajor;                   // Layout type for B matrix operand
 constexpr int AlignmentB  = 128 / cutlass::sizeof_bits<ElementB>::value;    // Memory access granularity/alignment of B matrix in units of elements (up to 16 bytes)
 
@@ -109,22 +114,24 @@ using         ElementD    = ElementC;
 using         LayoutD     = LayoutC;
 constexpr int AlignmentD  = AlignmentC;
 
-// Auxiliary matrix configuration
+// Auxiliary matrix configuration and other fusion types
 using         ElementAux   = ElementC;
 using         LayoutAux    = LayoutC;
+using         ElementAmax  = float;
+using         ElementBias  = float;
 
 // Core kernel configurations
 using ElementAccumulator  = float;                                          // Element type for internal accumulation
 using ElementCompute      = float;                                          // Element type for epilogue computation
 using ArchTag             = cutlass::arch::Sm90;                            // Tag indicating the minimum SM that supports the intended feature
 using OperatorClass       = cutlass::arch::OpClassTensorOp;                 // Operator class tag
-using TileShape           = Shape<_64,_128,_128>;                           // Threadblock-level tile size
+using TileShape           = Shape<_128,_128,_128>;                           // Threadblock-level tile size
 using ClusterShape        = Shape<_1,_2,_1>;                                // Shape of the threadblocks in a cluster
-using KernelSchedule      = cutlass::gemm::KernelTmaWarpSpecialized;
-using EpilogueSchedule    = cutlass::epilogue::TmaWarpSpecialized;
+using KernelSchedule      = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
+using EpilogueSchedule    = cutlass::epilogue::TmaWarpSpecializedCooperative;
 using EpilogueTileType    = cutlass::epilogue::collective::EpilogueTileAuto;
 using FusionOperation     = cutlass::epilogue::fusion::ScaledLinCombPerRowBiasEltActAmaxAux<
-    LayoutAux, cutlass::epilogue::thread::ReLU, ElementD, ElementCompute, ElementAux>;
+    LayoutAux, cutlass::epilogue::thread::ReLU, ElementD, ElementCompute, ElementAux, ElementAmax, ElementBias, ElementC>;
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     ArchTag, OperatorClass,
@@ -161,7 +168,7 @@ using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 using EpilogueOutputOp  = typename Gemm::EpilogueOutputOp;
 using ElementScalar     = typename EpilogueOutputOp::ElementScalar;
 using ElementAmax       = typename EpilogueOutputOp::ElementAmax;
-using ActivationFunctor = typename EpilogueOutputOp::ActivationFn<ElementCompute>;
+using ActivationFunctor = typename EpilogueOutputOp::ActivationFn;
 
 using StrideA = typename Gemm::GemmKernel::StrideA;
 using StrideB = typename Gemm::GemmKernel::StrideB;
@@ -169,7 +176,7 @@ using StrideC = typename Gemm::GemmKernel::StrideC;
 using StrideD = typename Gemm::GemmKernel::StrideD;
 using StrideAux = StrideD;
 
-constexpr bool IsDFp8 = 
+constexpr bool IsDFp8 =
     cute::is_same_v<ElementD, cutlass::float_e4m3_t> or
     cute::is_same_v<ElementD, cutlass::float_e5m2_t>;
 
@@ -211,6 +218,8 @@ cutlass::HostTensor<ElementAmax  , LayoutScalar> reference_abs_max_aux;
 /////////////////////////////////////////////////////////////////////////////////////////////////
 /// Testbed utility types
 /////////////////////////////////////////////////////////////////////////////////////////////////
+
+using RasterOrderOptions = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90Params::RasterOrderOptions;
 
 /// Result structure
 struct Result
@@ -271,7 +280,7 @@ bool initialize_tensor(
 }
 
 /// Initialize operands to be used in the GEMM and reference GEMM
-void initialize(const Options &options) {
+void initialize(const Options<RasterOrderOptions> &options) {
 
   stride_A = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(options.m, options.k, options.l));
   stride_B = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(options.n, options.k, options.l));
@@ -344,7 +353,7 @@ void initialize(const Options &options) {
 }
 
 /// Populates a Gemm::Arguments structure from the given commandline options
-typename Gemm::Arguments args_from_options(const Options &options)
+typename Gemm::Arguments args_from_options(const Options<RasterOrderOptions> &options)
 {
   typename Gemm::Arguments arguments{
     cutlass::gemm::GemmUniversalMode::kGemm,
@@ -390,10 +399,14 @@ typename Gemm::Arguments args_from_options(const Options &options)
     fusion_args.amax_D_ptr = abs_max_D.device_data();
   }
 
+  arguments.scheduler.raster_order = options.raster;
+  // The tile scheduler will swizzle up to 8 and with the nearest multiple of 2 (i.e., 1, 2, 4, and 8)
+  arguments.scheduler.max_swizzle_size = options.swizzle;
+
   return arguments;
 }
 
-bool verify(const Options &options) {
+bool verify(const Options<RasterOrderOptions> &options) {
   //
   // Compute reference output
   //
@@ -466,7 +479,7 @@ bool verify(const Options &options) {
 
 /// Execute a given example GEMM computation
 template <typename Gemm>
-int run(Options &options)
+int run(Options<RasterOrderOptions> &options)
 {
   initialize(options);
 
@@ -516,7 +529,17 @@ int run(Options &options)
     result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
     result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
 
+    std::string raster = "Heuristic";
+
+    if (options.raster == RasterOrderOptions::AlongN) {
+      raster = "Along N";
+    }
+    else if (options.raster == RasterOrderOptions::AlongM) {
+      raster = "Along M";
+    }
+
     std::cout << "  Problem Size: " << options.m << 'x' << options.n << 'x' << options.k << 'x' << options.l << std::endl;
+    std::cout << "  Rasterization: " << raster << " with a maximum CTA swizzle of " << options.swizzle << std::endl;
     std::cout << "  Avg runtime: " << result.avg_runtime_ms << " ms" << std::endl;
     std::cout << "  GFLOPS: " << result.gflops << std::endl;
   }
@@ -543,18 +566,20 @@ int main(int argc, char const **args) {
   CUDA_CHECK(cudaGetDevice(&current_device_id));
   CUDA_CHECK(cudaGetDeviceProperties(&props, current_device_id));
   cudaError_t error = cudaGetDeviceProperties(&props, 0);
-  if (props.major < 9) {
+  if (props.major != 9 || props.minor != 0) {
     std::cerr
-      << "This example requires a GPU of NVIDIA's Hopper Architecture or "
-      << "later (compute capability 90 or greater).\n";
+      << "This example requires a GPU of NVIDIA's Hopper Architecture (compute capability 90).\n";
     return 0;
   }
+
+  
+  
 
   //
   // Parse options
   //
 
-  Options options;
+  Options<RasterOrderOptions> options;
 
   options.parse(argc, args);
 

@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@
 #include "cutlass/tensor_coord.h"
 #include "cutlass/tensor_ref.h"
 #include "device_utils.h"
-#include <float.h>
+#include <cfloat>
 
 namespace cutlass {
 
@@ -360,9 +360,6 @@ void pooling_nhwc(cutlass::Tensor4DCoord input_tensor_size,
 
   assert(input_tensor_size.n() == output_tensor_size.n() &&
          input_tensor_size.c() == output_tensor_size.c());
-
-  assert(filter_tensor_size.h() == stride.row() &&
-         filter_tensor_size.w() == stride.column());
 
   const int N = input_tensor_size.n();
   const int H = input_tensor_size.h();

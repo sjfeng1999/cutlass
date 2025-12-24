@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,16 +49,16 @@ struct ContractionKernel {
 
 using ElementScalar = float;
 using ElementAccum = float;
-using EpilogueThread = cutlass::epilogue::thread::LinearCombination<ElementC,    
-                                                                    1,           
-                                                                    ElementAccum,   
-                                                                    ElementScalar>;  
+using EpilogueThread = cutlass::epilogue::thread::LinearCombination<ElementC,
+                                                                    1,
+                                                                    ElementAccum,
+                                                                    ElementScalar>;
 
 static constexpr cute::GMMA::Major majorA = ! kTransA ? cute::GMMA::Major::MN : cute::GMMA::Major::K;
 static constexpr cute::GMMA::Major majorB = ! kTransB ? cute::GMMA::Major::K : cute::GMMA::Major::MN;
 
 /// Kernel config
-typedef int64_t stride_type; 
+typedef int64_t stride_type;
 typedef int32_t extent_type;
 
 static constexpr const stride_type* stride_null = nullptr;
@@ -114,10 +114,10 @@ using CollectiveOp = typename cutlass::gemm::collective::CollectiveBuilder<
   cutlass::gemm::KernelTmaWarpSpecialized
 >::CollectiveOp;
 
-using EpilogueOutputOp = cutlass::epilogue::collective::DefaultEpilogue<StrideC, StrideC, EpilogueThread, cutlass::gemm::EpilogueDefault>;
+using EpilogueOutputOp = cutlass::epilogue::collective::DefaultEpilogue<ElementC, StrideC, StrideC, EpilogueThread, cutlass::gemm::EpilogueDefault>;
 using CollectiveEpilogue = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<EpilogueOutputOp>;
 using Kernel = cutlass::gemm::kernel::GemmUniversal<
-  ProblemShape, 
+  ProblemShape,
   CollectiveOp,
   CollectiveEpilogue>;
 

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,8 +72,8 @@ namespace layout {
 
     // test capacity
     auto capacity = tensor_nhwc.capacity(cutlass::Tensor4DCoord(n_size, h_size, w_size, c_size));
-    decltype(capacity) referece_capacity = ldh * n_size;
-    EXPECT_EQ(capacity, referece_capacity);
+    decltype(capacity) reference_capacity = ldh * n_size;
+    EXPECT_EQ(capacity, reference_capacity);
 
     // test packed
     auto packed_tensor_layout = tensor_nhwc.packed(cutlass::Tensor4DCoord(n_size, h_size, w_size, c_size));
@@ -115,8 +115,8 @@ namespace layout {
 
     // test capacity
     auto capacity = tensor_nchw.capacity(cutlass::Tensor4DCoord(n_size, h_size, w_size, c_size));
-    decltype(capacity) referece_capacity = ldc * n_size;
-    EXPECT_EQ(capacity, referece_capacity);
+    decltype(capacity) reference_capacity = ldc * n_size;
+    EXPECT_EQ(capacity, reference_capacity);
 
     // test packed
     auto packed_tensor_layout = tensor_nchw.packed(cutlass::Tensor4DCoord(n_size, h_size, w_size, c_size));

@@ -1,4 +1,4 @@
-# Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,7 @@
 add_custom_target(
   cutlass_test_unit_cute_hopper
   DEPENDS
+  cutlass_test_unit_cute_hopper_cooperative_gemm
   cutlass_test_unit_cute_hopper_stsm
   cutlass_test_unit_cute_hopper_tma_load
   cutlass_test_unit_cute_hopper_tma_store
@@ -47,6 +48,11 @@ add_custom_target(
 )
 
 cutlass_test_unit_add_executable(
+  cutlass_test_unit_cute_hopper_cooperative_gemm
+  cooperative_gemm.cu
+)
+
+cutlass_test_unit_add_executable(
   cutlass_test_unit_cute_hopper_stsm
   stsm.cu
 )
@@ -54,6 +60,11 @@ cutlass_test_unit_add_executable(
 cutlass_test_unit_add_executable(
   cutlass_test_unit_cute_hopper_tma_load
   tma_load.cu
+)
+
+cutlass_test_unit_add_executable(
+  cutlass_test_unit_cute_hopper_tma_mcast_load
+  tma_mcast_load.cu
 )
 
 cutlass_test_unit_add_executable(

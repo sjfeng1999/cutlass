@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  **************************************************************************************************/
-
 #include <cuda_runtime_api.h>
 
 #include "cutlass_unit_test.h"
@@ -59,7 +58,10 @@ std::ostream &operator<<(std::ostream &out, cudaDeviceProp const &deviceProperti
 
   int deviceMajorMinor = deviceProperties.major * 10 + deviceProperties.minor;
   if (deviceMajorMinor) {
-    int32_t clock_MHz = deviceProperties.clockRate / 1000;
+    int32_t clock_MHz;
+    int32_t clock_KHz;
+    cudaDeviceGetAttribute(&clock_KHz, cudaDevAttrClockRate, 0);
+    clock_MHz = clock_KHz / 1000;
     out << "GPU(compute_"
       << deviceMajorMinor << ", "
       << deviceProperties.multiProcessorCount << " SMs @ " << clock_MHz << " MHz)";
@@ -87,7 +89,6 @@ void FilterArchitecture() {
               << " [" << cudaGetErrorString(err) << "]" << std::endl;
     exit(1);
   }
-
   cudaDeviceProp deviceProperties;
   err = cudaGetDeviceProperties(&deviceProperties, cudaDeviceId);
   if (cudaSuccess != err) {
@@ -117,9 +118,13 @@ void FilterArchitecture() {
     { "SM70*",                      70, 75},
     { "SM75*",                      75, kMaxDevice},
     { "SM80*",                      80, kMaxDevice},
-    { "SM90*",                      90, 90        },
+    { "SM89*",                      89, 89},
+    { "SM90*",                      90, 90},
+    { "SM100*",                    100, 100}, 
+    { "*sm100_*",                  100, 100},
     { 0, 0, false }
   };
+
 
   // Set negative test filters
   std::stringstream ss;

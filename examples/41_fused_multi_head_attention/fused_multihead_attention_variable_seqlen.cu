@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,7 +12,7 @@
  * this list of conditions and the following disclaimer in the documentation
  * and/or other materials provided with the distribution.
  *
- * 3. Neither the name of the copyright holdvr nor the names of its
+ * 3. Neither the name of the copyright holder nor the names of its
  * contributors may be used to endorse or promote products derived from
  * this software without specific prior written permission.
  *
@@ -55,7 +55,7 @@
       ```
 
       In practice, and for numerical stability reasons,
-      we also substract the maximum so far (`mi`) before doing
+      we also subtract the maximum so far (`mi`) before doing
       the exponential. When we encounter new keys, the maximum
       used to compute O so far (`m_prime`) can differ from the
       current maximum, so we update O before accumulating with
@@ -340,7 +340,7 @@ struct Options {
     // Number of real-valued multiply-adds 
     int64_t fops = int64_t();
 
-    for (int i = 0; i < problem_sizes0.size(); ++i) {
+    for (size_t i = 0; i < problem_sizes0.size(); ++i) {
       auto const& problem0 = problem_sizes0[i];
       auto const& problem1 = problem_sizes1[i];
 

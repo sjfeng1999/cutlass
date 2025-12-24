@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -511,6 +511,48 @@ TEST(SM80_warp_gemm_tensor_op_congruous_f16, 128x128x32_32x32x32_16x8x16) {
 
   test::gemm::warp::Testbed<MmaTensorOp,
                             cutlass::gemm::GemmShape<128, 128, 32> >()
+      .run();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_warp_gemm_tensor_op_congruous_f16, 16x16x32_16x16x32_16x8x16) {
+  using Shape = cutlass::gemm::GemmShape<16, 16, 32>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+  using Element = cutlass::half_t;
+  using ElementC = float;
+  using LayoutA = cutlass::layout::ColumnMajorTensorOpMultiplicandCongruous<
+      cutlass::sizeof_bits<Element>::value, 16>;
+  using LayoutB = cutlass::layout::RowMajorTensorOpMultiplicandCongruous<
+      cutlass::sizeof_bits<Element>::value, 16>;
+
+  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
+      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
+      cutlass::layout::RowMajor>::Type;
+
+  test::gemm::warp::Testbed<MmaTensorOp,
+                            cutlass::gemm::GemmShape<16, 16, 32> >()
+      .run();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST(SM80_warp_gemm_tensor_op_congruous_f16, 32x32x32_32x32x32_16x8x16) {
+  using Shape = cutlass::gemm::GemmShape<32, 32, 32>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+  using Element = cutlass::half_t;
+  using ElementC = float;
+  using LayoutA = cutlass::layout::ColumnMajorTensorOpMultiplicandCongruous<
+      cutlass::sizeof_bits<Element>::value, 32>;
+  using LayoutB = cutlass::layout::RowMajorTensorOpMultiplicandCongruous<
+      cutlass::sizeof_bits<Element>::value, 32>;
+
+  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
+      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
+      cutlass::layout::RowMajor>::Type;
+
+  test::gemm::warp::Testbed<MmaTensorOp,
+                            cutlass::gemm::GemmShape<32, 32, 32> >()
       .run();
 }
 
@@ -1312,215 +1354,6 @@ TEST(SM80_warp_gemm_tensor_op_crosswise_i4, 128x128x256_16x16x256_16x8x64) {
 
   test::gemm::warp::Testbed<MmaTensorOp,
                             cutlass::gemm::GemmShape<128, 128, 256> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x512_64x64x512_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<64, 64, 512>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 512> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x512_64x32x512_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<64, 32, 512>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 512> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x512_32x32x512_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<32, 32, 512>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 512> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x512_32x16x512_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<32, 16, 512>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 512> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x512_16x16x512_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<16, 16, 512>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 512>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 512> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x1024_64x64x1024_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<64, 64, 1024>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 1024> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x1024_64x32x1024_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<64, 32, 1024>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 1024> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x1024_32x32x1024_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<32, 32, 1024>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 1024> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x1024_32x16x1024_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<32, 16, 1024>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 1024> >()
-      .run();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TEST(SM80_warp_gemm_tensor_op_crosswise_b1, 128x128x1024_16x16x1024_16x8x256) {
-  using Shape = cutlass::gemm::GemmShape<16, 16, 1024>;
-  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 256>;
-  using Element = cutlass::uint1b_t;
-  using ElementC = int;
-  using LayoutA = cutlass::layout::RowMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-  using LayoutB = cutlass::layout::ColumnMajorTensorOpMultiplicandCrosswise<
-      cutlass::sizeof_bits<Element>::value, 1024>;
-
-  using MmaTensorOp = typename cutlass::gemm::warp::DefaultMmaTensorOp<
-      Shape, InstructionShape, Element, LayoutA, Element, LayoutB, ElementC,
-      cutlass::layout::RowMajor, cutlass::arch::OpMultiplyAdd>::Type;
-
-  test::gemm::warp::Testbed<MmaTensorOp,
-                            cutlass::gemm::GemmShape<128, 128, 1024> >()
       .run();
 }
 

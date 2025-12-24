@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,9 +30,10 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
+#include <cute/config.hpp>            // CUTE_HOST_DEVICE
+#include <cute/util/type_traits.hpp>  // __CUTE_REQUIRES
 
-#include <cute/util/type_traits.hpp>
+#include <cutlass/fast_math.h>
 
 namespace cute
 {
@@ -56,7 +57,7 @@ template <class T, class U,
 CUTE_HOST_DEVICE constexpr
 auto
 min(T const& t, U const& u) {
-  return t < u ? t : u;
+  return static_cast<cute::common_type_t<T,U>>(t) < static_cast<cute::common_type_t<T,U>>(u) ? t : u;
 }
 
 template <class T,
@@ -73,16 +74,31 @@ abs(T const& t) {
   CUTE_GCC_UNREACHABLE;
 }
 
+// Returns 1 if x > 0, -1 if x < 0, and 0 if x is zero.
+template <class T,
+          __CUTE_REQUIRES(is_arithmetic<T>::value)>
+CUTE_HOST_DEVICE constexpr
+int
+signum(T const& x) {
+  if constexpr (is_signed<T>::value) {
+    return (T(0) < x) - (x < T(0));
+  } else {
+    return T(0) < x;
+  }
+
+  CUTE_GCC_UNREACHABLE;
+}
+
 //
 // C++17 <numeric> operations
 //
 
-// Greatest common divisor of two integers
+// Greatest common divisor of two positive integers
 template <class T, class U,
           __CUTE_REQUIRES(is_std_integral<T>::value &&
                           is_std_integral<U>::value)>
 CUTE_HOST_DEVICE constexpr
-auto
+cute::common_type_t<T, U>
 gcd(T t, U u) {
   while (true) {
     if (t == 0) { return u; }
@@ -92,12 +108,12 @@ gcd(T t, U u) {
   }
 }
 
-// Least common multiple of two integers
+// Least common multiple of two positive integers
 template <class T, class U,
           __CUTE_REQUIRES(is_std_integral<T>::value &&
                           is_std_integral<U>::value)>
 CUTE_HOST_DEVICE constexpr
-auto
+cute::common_type_t<T, U>
 lcm(T const& t, U const& u) {
   return (t / gcd(t,u)) * u;
 }
@@ -115,6 +131,8 @@ has_single_bit(T x) {
 }
 
 // Smallest number of bits needed to represent the given value
+//   For x == 0, this is 0
+//   For x != 0, this is 1 + floor(log2(x))
 // bit_width( 0b0000 ) = 0
 // bit_width( 0b0001 ) = 1
 // bit_width( 0b0010 ) = 2
@@ -125,7 +143,7 @@ has_single_bit(T x) {
 // bit_width( 0b0111 ) = 3
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+int
 bit_width(T x) {
   static_assert(is_unsigned<T>::value, "Only to be used for unsigned types.");
   constexpr int N = (numeric_limits<T>::digits == 64 ? 6 :
@@ -188,7 +206,7 @@ CUTE_HOST_DEVICE constexpr
 T
 rotl(T x, int s) {
   constexpr int N = numeric_limits<T>::digits;
-  return s == 0 ? x : s > 0 ? (x << s) | (x >> (N - s)) : rotr(x, -s);
+  return static_cast<T>(s == 0 ? x : s > 0 ? (x << s) | (x >> (N - s)) : rotr(x, -s));
 }
 
 // Computes the result of circular bitwise right-rotation
@@ -197,7 +215,7 @@ CUTE_HOST_DEVICE constexpr
 T
 rotr(T x, int s) {
   constexpr int N = numeric_limits<T>::digits;
-  return s == 0 ? x : s > 0 ? (x >> s) | (x << (N - s)) : rotl(x, -s);
+  return static_cast<T>(s == 0 ? x : s > 0 ? (x >> s) | (x << (N - s)) : rotl(x, -s));
 }
 
 // Counts the number of consecutive 0 bits, starting from the most significant bit
@@ -206,7 +224,7 @@ rotr(T x, int s) {
 // countl_zero( 0b00011100 ) = 3
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+int
 countl_zero(T x) {
   return numeric_limits<T>::digits - bit_width(x);
 }
@@ -217,7 +235,7 @@ countl_zero(T x) {
 // countl_one( 0b11100011 ) = 3
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+int
 countl_one(T x) {
   return countl_zero(~x);
 }
@@ -228,7 +246,7 @@ countl_one(T x) {
 // countr_zero( 0b00011100 ) = 2
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+int
 countr_zero(T x) {
   return x == 0 ? numeric_limits<T>::digits : bit_width(T(x & T(-x))) - 1;  // bit_width of the LSB
 }
@@ -239,7 +257,7 @@ countr_zero(T x) {
 // countr_one( 0b11100011 ) = 2
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+int
 countr_one(T x) {
   return countr_zero(~x);
 }
@@ -267,7 +285,7 @@ popcount(T x) {
 // Computes the result of bitwise left-shift
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+auto
 shiftl(T x, int s) {
   return s >= 0 ? (x << s) : (x >> -s);
 }
@@ -275,26 +293,9 @@ shiftl(T x, int s) {
 // Computes the result of bitwise right-shift
 template <class T>
 CUTE_HOST_DEVICE constexpr
-T
+auto
 shiftr(T x, int s) {
   return s >= 0 ? (x >> s) : (x << -s);
-}
-
-// Returns 1 if x > 0, -1 if x < 0, and 0 if x is zero.
-template <class T,
-          __CUTE_REQUIRES(is_unsigned<T>::value)>
-CUTE_HOST_DEVICE constexpr
-int
-signum(T const& x) {
-  return T(0) < x;
-}
-
-template <class T,
-          __CUTE_REQUIRES(not is_unsigned<T>::value)>
-CUTE_HOST_DEVICE constexpr
-int
-signum(T const& x) {
-  return (T(0) < x) - (x < T(0));
 }
 
 // Safe divide
@@ -308,6 +309,48 @@ auto
 safe_div(T const& t, U const& u) {
   //assert(t % u == 0);
   return t / u;
+}
+
+/**
+ * log2 computation
+ */
+
+template <class T>
+CUTE_HOST_DEVICE constexpr
+int32_t
+log_2(T x) {
+  assert(x > 0);
+  static_assert(is_unsigned<T>::value, "Only to be used for unsigned integral types.");
+  return static_cast<int32_t>(bit_width(x)) - 1;
+}
+
+template <class IntDiv, class IntMod>
+struct DivModReturnType {
+  IntDiv div_;
+  IntMod mod_;
+  CUTE_HOST_DEVICE constexpr
+  DivModReturnType(IntDiv const& div, IntMod const& mod) : div_(div), mod_(mod) {}
+};
+
+// General divmod
+template <class CInt0, class CInt1>
+CUTE_HOST_DEVICE constexpr
+auto
+divmod(CInt0 const& a, CInt1 const& b) {
+  return DivModReturnType{a / b, a % b};
+}
+
+// Specialized function with fastDivmod input
+template <class CInt>
+CUTE_HOST_DEVICE constexpr
+auto
+divmod(CInt const& a, cutlass::FastDivmod const& b) {
+  using val_div_type = typename cutlass::FastDivmod::value_div_type;
+  using val_mod_type = typename cutlass::FastDivmod::value_mod_type;
+  val_div_type div = 0;
+  val_mod_type mod = 0;
+  b(div, mod, a);
+  return DivModReturnType{div, mod};
 }
 
 } // namespace cute

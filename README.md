@@ -1,104 +1,216 @@
-![ALT](/media/images/gemm-hierarchy-with-epilogue-no-labels.png "Complete CUDA GEMM decomposition")
+![ALT](./media/images/gemm-hierarchy-with-epilogue-no-labels.png "Complete CUDA GEMM decomposition")
+# Overview
 
-# CUTLASS 3.2
+# CUTLASS 4.3.4
 
-_CUTLASS 3.2 - August 2023_
+_CUTLASS 4.3.4 - Dec 2025_
 
-CUTLASS is a collection of CUDA C++ template abstractions for implementing
-high-performance matrix-matrix multiplication (GEMM) and related computations at all levels 
-and scales within CUDA. It incorporates strategies for hierarchical decomposition and 
-data movement similar to those used to implement cuBLAS and cuDNN.  CUTLASS decomposes 
-these "moving parts" into reusable, modular software components abstracted by C++ template 
-classes.  Primitives for different levels of a conceptual parallelization hierarchy
-can be specialized and tuned via custom tiling sizes, data types,
-and other algorithmic policy. The resulting flexibility simplifies their use
-as building blocks within custom kernels and applications.
+CUTLASS is a collection of abstractions for implementing high-performance matrix-matrix multiplication (GEMM)
+and related computations at all levels and scales within CUDA. It incorporates strategies for
+hierarchical decomposition and data movement. CUTLASS decomposes these "moving parts" into reusable, modular
+software components and abstractions.
 
-To support a wide variety of applications, CUTLASS provides extensive support for
-mixed-precision computations, providing specialized data-movement and
-multiply-accumulate abstractions for half-precision floating
-point (FP16), BFloat16 (BF16), Tensor Float 32 (TF32),
-single-precision floating point (FP32),
-[FP32 emulation via tensor core instruction](/examples/27_ampere_3xtf32_fast_accurate_tensorop_gemm),
-double-precision floating
-point (FP64) types, integer data types (4b and 8b), and binary data types (1b).
-CUTLASS demonstrates warp-synchronous matrix multiply operations
+Primitives for different levels of a conceptual parallelization hierarchy can be specialized and tuned
+via custom tiling sizes, data types, and other algorithmic policy. The resulting flexibility simplifies
+their use as building blocks within custom kernels and applications.
+
+CUTLASS has been providing CUDA C++ template abstractions for high-performance linear algebra since 2017 and
+these abstractions provide extensive support for a wide range of computations including
+mixed-precision computations, specialized data-movement (async copy) and
+multiply-accumulate abstractions for FP64, FP32, TF32, FP16, BF16,
+[FP32 emulation via tensor core instruction](https://github.com/NVIDIA/cutlass/tree/main/examples/27_ampere_3xtf32_fast_accurate_tensorop_gemm),
+ 8b floating point types (e5m2 and e4m3),
+ block scaled data types (NVIDIA NVFP4 and OCP standard MXFP4, MXFP6, MXFP8),
+ narrow integer types (4 and 8b signed and unsigned integers),
+ and binary 1b data types (where architectures allow for the
+native support of such data types) across NVIDIA's Volta, Turing, Ampere, Ada, Hopper, and Blackwell architectures.
+
+To this rich ecosystem of C++ based kernel programming abstractions, CUTLASS 4 adds CUTLASS DSLs. These are Python native interfaces for writing high-performance CUDA kernels based on core CUTLASS and CuTe concepts without any performance compromises. This allows for a much smoother learning curve, orders of magnitude faster compile times, native integration with DL frameworks without writing glue code, and much more intuitive metaprogramming that does not require deep C++ expertise.
+
+Overall we envision CUTLASS DSLs as a family of domain-specific languages (DSLs). With the release of 4.0, we are releasing the first of these in CuTe DSL. This is a low level programming model that is fully consistent with CuTe C++ abstractions — exposing core concepts such as layouts, tensors, hardware atoms, and full control over the hardware thread and data hierarchy.
+
+CuTe DSL demonstrates optimal matrix multiply and other linear algebra operations
 targeting the programmable, high-throughput _Tensor Cores_ implemented by
-NVIDIA's Volta, Turing, Ampere, and Hopper architectures.
+NVIDIA's Ampere, Hopper, and Blackwell architectures.
 
-See the [Quick Start Guide](/media/docs/quickstart.md) to get started quickly.
+We believe it will become an indispensable tool for students, researchers, and performance
+engineers alike — flattening the learning curve of GPU programming, rapidly prototyping kernel
+designs, and bringing optimized solutions into production.
 
-See the [functionality listing](/media/docs/functionality.md) for the list of operations
-supported at each level of the execution model hierarchy.
+CuTe DSL is currently in public beta and will graduate out of beta by end of summer 2025.
 
-CUTLASS 3.0 introduced a new core library, CuTe, to describe and manipulate tensors of threads and data.
-CuTe is a collection of C++ CUDA template abstractions for defining and operating on hierarchically multidimensional layouts of threads and data. CuTe provides `Layout` and `Tensor` objects that compactly package the type, shape, memory space, and layout of data, while performing the complicated indexing for the user. This lets programmers focus on the logical descriptions of their algorithms while CuTe does the mechanical bookkeeping for them. With these tools, we can quickly design, implement, and modify all dense linear algebra operations.
+To get started quickly - please refer :
+  - [CUTLASS C++ Quick Start Guide](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html).
+  - [CuTe DSL Quick Start Guide](https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/quick_start.html).
 
-The core abstractions of CuTe are hierarchically multidimensional layouts which can be composed with data arrays to represent tensors. The representation of layouts is powerful enough to represent nearly everything we need to implement efficient dense linear algebra. Layouts can also be combined and manipulated via functional composition, on which we build a large set of common operations such as tiling and partitioning.
+# What's New in CUTLASS 4.3
 
-CUTLASS 3.0 and beyond adopts CuTe throughout the GEMM hierarchy in its templates. This greatly simplifies the design
-and improves code composability and readability. More documentation specific to CuTe can be found in its [dedicated documentation directory](/media/docs/cute/00_quickstart.md).
+## CuTe DSL
+* New features:
+  - Supported Apache [TVM-FFI](https://tvm.apache.org/ffi/index.html) for further reduced host runtime overhead for JIT functions, better PyTorch and ML frameworks interopability
+  - Added fake tensor and stream to decouple compile jit function with "from_dlpack" flow. Now we no longer require users to have real tensor when compile jit function.
+  - Added FastDivmodDivisor with Python operator overloads, new APIs, Cute dialect integration, and optimized static tile scheduler performance for faster index mapping.
+  - Added l2 cache evict priority for tma related ops. Users could do fine-grain l2 cache control.
+  - Added Blackwell SM103 support.
+  - Multiple dependent DSOs in the wheel have been merged into one single DSO.
+  - New env var `CUTE_DSL_CACHE_DIR` to specify the path for dumping caches.
+  - Supported namedtuple and kwargs for JIT function arguments in tvm-ffi.
+  - Supported variadic tuples for JIT function argument in tvm-ffi.
+  - Added PDL support along with example [Kernel launch with Programmatic Dependent Launch](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/programmatic_dependent_launch.py)
+* Debuggability improvements:
+    - Supported source location tracking for DSL APIs (Allow tools like ``nsight`` profiling to correlate perf metrics with Python source code)
+    - Supported dumping PTX and CUBIN code: [Hello World Example](https://github.com/NVIDIA/cutlass/blob/main/examples/python/CuTeDSL/notebooks/hello_world.ipynb)
+* More examples and notebooks to get started with CuTe DSL:
+    - Improved performance of [elementwise example](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/ampere/elementwise_apply.py):
+        + Generalize code to handle list of input tensors
+        + Generalize TV layout computation to handle different data types
+    - Improved [Blackwell SM100 persistent dense GEMM with static scheduling](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/dense_gemm_persistent.py):
+        + To demonstrate usage of new Pipeline APIs `PipelineProducer` and `PipelineConsumer` to simplify code without explicit pipeline state management (Exiting APIs are still maintained)
+        + Separated epilogue code for non-TMA and TMA implementation
+    - [Tutorial for Blackwell GEMM: Basic Blackwell SM100 GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/tutorial_gemm)
+        + [Baseline Blackwell GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/tutorial_gemm/fp16_gemm_0.py) achieves 84% SOL performance with MNK 8K
+        + More examples are coming for demo of optimization: `Baseline + X`
+    - [Tutorial for Async Pipeline API](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/notebooks/async_pipeline.ipynb)
+    - Reworked [elementwise add notebook](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/notebooks/elementwise_add.ipynb) with more details and detailed explanation about TV layout
+        + Updated implementation to handle general data type and multiple inputs
+        + Updated explanation for TV layout in simpler language
+        + Added visualization of TV Layout with 3rd party utils
+    - [Benchmark and autotune demonstration](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/notebooks/benchmark_autotune.ipynb)
+* More examples of authorizing peak-performance kernels:
+    - [Blackwell SM100 mixed-input GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/mixed_input_gemm.py)
+    - [Blackwell SM100 persistent blockwise dense GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/blockwise_gemm/blockwise_gemm.py)
+    - [Blackwell SM100 persistent blockwise contiguous grouped dense GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/blockwise_gemm/contiguous_grouped_gemm.py)
+    - [Blackwell SM100 persistent blockwise masked grouped dense GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/blockwise_gemm/masked_grouped_gemm.py)
+    - [Blackwell SM100 fmha bwd](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/fmha_bwd.py)
+    - [Blackwell SM100 mla](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/mla.py)
+    - [Hopper SM90 persistent dense GEMM with static scheduling](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/hopper/dense_gemm_persistent.py)
+    - [Blackwell GeForce batched dense GEMM](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell_geforce/dense_gemm.py)
+    - [Ampere HSTU Attention](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/ampere/hstu_attention.py)
+* API updates:
+    - Please refer to [DSL API changelog](https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/cute_dsl_api/changelog.html) for details
+* Bug fixings and improvements
+    - Add mma_tiler_n=64 and mma_tiler_n=192 support in [Blackwell SM100 persistent dense blockscaled GEMM with static scheduling](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/dense_blockscaled_gemm_persistent.py).
+    - Fixed ``TensorSSA.reduce`` to support static value as initial value
+    - Updated docstring for following APIs to be more concise and easier to understand:
+        - ``make_layout_tv``
+        - ``is_static``
+        - ``PipelineAsync``
+        - ``SmemAllocator``
+    - Fixed documentation for ``pipeline``, ``utils`` and ``cute.math``
+    - Added overlapping accumulator optimization for block tile N = 256 case for better epilogue latency hiding in [Blackwell SM100 persistent dense blockscaled GEMM with static scheduling](https://github.com/NVIDIA/cutlass/tree/main/examples/python/CuTeDSL/blackwell/dense_blockscaled_gemm_persistent.py).
+    - Fixed TensorSSA.__getitem__ indexing to match CuTe's indexing convention
+    - Fixed an issue with cutlass.max and cutlass.min
+    - Fixed an issue with mark_compact_shape_dynamic
+    - Fixed device reset issue with tvm-ffi
+    - Fixed tvm-ffi export compiled function
+    - Fixed an issue of CUDA JitExecutor when unloading kernels
+    - Fixed an issue of allocating max smem when there's statically allocated smem
+    - Fixed an issue when JIT function argument with union type annotation for tvm-ffi
+    - Clearer error message for the case of runtime error cudaErrorInsufficientDriver
+    - Fixed a frame refcnt issue with cuda graph
+    - Enhancement for tvm-ffi AoT case for earlier module unload
+    - Fixed order issue in make_smem_layout_a in utils/hopper_helpers.py
 
-In addition to GEMMs, CUTLASS implements high-performance convolution via the implicit GEMM algorithm. Implicit GEMM is the formulation of a convolution operation as a GEMM thereby taking advantage of CUTLASS's modular GEMM pipeline. This allows CUTLASS to build convolutions by reusing highly-optimized GEMM components.
+## CUTLASS C++
+* Further enhance Blackwell SM100 Attention kernels in [example 77](https://github.com/NVIDIA/cutlass/tree/main/examples/77_blackwell_fmha/).
+    - Add softmax skip correction.
+    - Fix a shared memory allocation bug where it needs to opt in maximum dynamics shared memory explicitly once it exceeds 48KB.
+    - Fix a dead hang issue caused by early return warp.
+* Add support through cmdline argument lists for `batch`, `no_verif`, `cluster_shape` and `cluster_shape_fallback` in [example 89](https://github.com/NVIDIA/cutlass/tree/main/examples/89_sm103_fp4_ultra_gemm/).
+* Add Ragged Contiguous Grouped gemm kernel in [example 92](https://github.com/NVIDIA/cutlass/tree/main/examples/92_blackwell_moe_gemm/).
+    - This kernel uses a TMA 3D load to load the weights matrix and use the tensormap update method to load activations.
+* Add 256x128 tile size support for Hopper SM90 deepgemm in [example 67](https://github.com/NVIDIA/cutlass/tree/main/examples/67_hopper_fp8_warp_specialized_gemm_with_blockwise_scaling/).
+    - Performance is optimized to align with Deepseek implementation.
+* Simplification of API for MoE gemms.
+    - Instead of requiring users to call several cute utilities to set up the stride, API `moe_stride_utils` is introduced to help setup strides in the kernel.
+    - Instead of requiring users to set vectors like `problem_shapes_device` and `problem_shapes_hosts`, a new problem shape struct called `MoEProblemShape` is introduced which takes in max_m, max_n, max_k and counts vector as input and deduce problem shapes internally whenever required.
+* Enable GEMM_K = 0 in grouped gemm.
+* Optimize group gemm kernels by enabling async TMA desc update.
+* Support Blackwell SM100 convolution stream-K kernel.
+    - Unit tests: [fprop_streamK](https://github.com/NVIDIA/cutlass/tree/main/test/unit/conv/device_3x/fprop/sm100_conv3d_fprop_implicit_gemm_f16_f16_f16_tensorop_f16_streamk.cu), [dgrad_streamK](https://github.com/NVIDIA/cutlass/tree/main/test/unit/conv/device_3x/dgrad/sm100_conv3d_dgrad_implicit_gemm_f16_f16_f16_tensorop_f16_streamk.cu), [wgrad_streamK](https://github.com/NVIDIA/cutlass/tree/main/test/unit/conv/device_3x/wgrad/sm100_conv2d_wgrad_implicit_gemm_f16_f16_f16_tensorop_f16_streamk.cu).
+* Add Blackwell SM100 sparse gemm compressor unit tests.
+    - Unit tests: [compressor_fp16](https://github.com/NVIDIA/cutlass/tree/main/test/unit/transform/device/sm100_sparse_gemm_compressor_f16.cu).
+    - Add sub-bytes and runtime data type support in compressor unit test testbed.
+* Add profiler support for:
+    - Blackwell SM100 and SM120 blockscaled sparse kernels.
+    - New MoE grouped gemm API.
+    - Blackwell SM100 cpasync kernel.
+* Fix some kernel issues:
+    - Fix a race check issue of Blackwell SM103 kernels by adding missing elect one for prefetch barrier initialization.
+    - Allow user to directly specify the number of stages for Hopper sm90 mixed input gemm.
+    - Remove warnings caused by cuda vector type alignment setting in CUDA 13.
+    - Remove problematic `cutlass::int8_t` and replace it with `int8_t`.
+    - Fix a few bugs in distributed gemm API and examples.
+    - Fix handling negative zero in sparse compressor.
+    - Add missing `wait_on_dependent_grids` for PDL use case.
+    - Work around a driver TMA descriptor related bug which will cause occasionally errors on Blackwell when the tensor's backing memory allocation is less than 128KB and it is not a dense non-overlapping tensor.
+* Fix some profiler issues:
+    - Add some missing reference kernels.
+    - Support VoidC reference kernels.
+    - Add calculation of scale factor A and B in function `bytes_with_problem_shape` of block scaled profiler.
+    - Fix an issue when epilogue tile N is not divided by default subtile N.
 
-# What's New in CUTLASS 3.2
+Note: CUTLASS 4.x builds are known to be down on Windows platforms for all CUDA toolkits.
+CUTLASS team is working on a fix.
 
-CUTLASS 3.2 is an update to CUTLASS adding:
-- New warp-specialized persistent FP8 GEMM kernel [kernel schedules](/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized_cooperative.hpp) and [mainloops](/include/cutlass/gemm/collective/sm90_mma_tma_gmma_ss_warpspecialized_fp8.hpp)  targeting Hopper architecture that achieve great performance with TMA, WGMMA, and threadblock clusters. An example showcasing [Hopper warp-specialized FP8 GEMMs](/examples/54_hopper_fp8_warp_specialized_gemm).
-- New [Epilogue Visitor Tree (EVT)](/examples/49_hopper_gemm_with_collective_builder/49_collective_builder.cu) support for Hopper TMA epilogues. EVTs allows for user-defined customized epilogue fusion patterns without having to write a new epilogue.
-- [Stream-K](/include/cutlass/gemm/kernel/sm90_tile_scheduler_stream_k.hpp) feature for Hopper. Note that this is only a functional implementation of stream-K, and should not be used for performance comparison. Optimizations are expected in a future release.
-- Improved CTA rasterization and support for CTA swizzling for Hopper kernels using the [Tile Scheduler](/include/cutlass/gemm/kernel/sm90_tile_scheduler.hpp).
-- Improved performance for [warp-specialized TensorFloat-32 (TF32) GEMM kernels](test/unit/gemm/device/sm90_gemm_tf32_tf32_f32_tensor_op_f32_gmma_rs_cluster_warpspecialized.cu) targeting Hopper TMA.
-- [Hopper GEMM+Permute](/examples/53_hopper_gemm_permute/53_hopper_gemm_permute.cu), an example of fusing tensor reordering (permutation) with GEMM mainloop or epilogue.
-- New CUTLASS 2D Convolution Python interface. New [example](/examples/python/03_basic_conv2d.ipynb) here.
-- Support for Windows (MSVC) builds.
-
-
-Minimum requirements:
-
-- Architecture: Volta
-- Compiler: Must support at least C++17
-- CUDA Toolkit version: 11.4
-
-Starting from CUTLASS 3.0, CUTLASS removed support for the following:
-
-- Maxwell and Pascal GPU architectures
-- Ubuntu 16.04
-- CUDA 10.2
-- C++ language versions less than 17.
-
-**See the [CHANGELOG](CHANGELOG.md) for a detailed listing of releases and updates.**
+**See the [CHANGELOG](https://docs.nvidia.com/cutlass/latest/CHANGELOG.html) for details of all past releases and updates.**
 
 # Performance
 
-<p align="center"><img src=media/images/cutlass-3.1-gemm-peak-performance.png></p>
-
 CUTLASS primitives are very efficient.  When used to construct device-wide GEMM kernels,
-they exhibit peak performance comparable to cuBLAS for scalar GEMM
-computations. The above figure shows CUTLASS performance relative to cuBLAS
-for large matrix dimensions on an [NVIDIA H100](https://www.nvidia.com/en-us/data-center/h100/) (NVIDIA Hopper architecture), 
-an [NVIDIA L40](https://www.nvidia.com/en-us/data-center/l40/) (NVIDIA Ada architecture),
-an [NVIDIA A100](https://www.nvidia.com/en-us/data-center/a100/) (NVIDIA Ampere architecture),  
-and an [NVIDIA A40](https://www.nvidia.com/en-us/data-center/a40/)  (NVIDIA Ampere architecture).
-CUTLASS 3.0 was compiled with the [CUDA 12.0 Toolkit](https://developer.nvidia.com/cuda-downloads). 
-Tensor Core operations are implemented using CUDA's 
+they exhibit nearly optimal utilization of peak theoretical throughput. The figure below
+shows CUTLASS 3.8's performance as a % of theoretical peak utilization
+on various input and output data types when run on NVIDIA Blackwell SM100 architecture GPU.
+
+![ALT](media/images/cutlass-3.8-blackwell-gemm-peak-performance.svg "")
+
+The two figures below show the continual CUTLASS performance improvements
+on an [NVIDIA H100](https://www.nvidia.com/en-us/data-center/h100/) (NVIDIA Hopper architecture) since
+CUTLASS 3.1.
+CUTLASS 3.5.1 was compiled with the [CUDA 12.5u1 Toolkit](https://developer.nvidia.com/cuda-downloads).
+Tensor Core operations are implemented using CUDA's
 [mma](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma) and
 [wgmma](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-instructions) instructions.
 
-<p align="center"><img src=media/images/cutlass-2.9-implicit-gemm-performance.png></p>
+![ALT](media/images/cutlass-3.5.1-gemm-peak-performance.png "")
+![ALT](media/images/cutlass-3.5.1-gemm-peak-performance-fp8.png "")
 
-When using CUTLASS building blocks to construct device-wide implicit gemm (Fprop, Dgrad, and Wgrad)
-kernels, CUTLASS performance is also comparable to cuDNN when running Resnet-50 layers on an [NVIDIA A100](https://www.nvidia.com/en-us/data-center/a100/)
-as shown in the above figure.  Tensor Core operations are implemented using CUDA's
-[mma instruction](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma).
+# CuTe
+
+CUTLASS 3.0 introduced a new core library, CuTe, to describe and manipulate tensors of threads and data.
+CuTe is a collection of C++ CUDA template abstractions for
+defining and operating on hierarchically multidimensional layouts of threads and data.
+CuTe provides `Layout` and `Tensor` objects that compactly package the type,
+shape, memory space, and layout of data, while performing the complicated indexing for the user.
+This lets programmers focus on the logical descriptions of their algorithms while
+CuTe does the mechanical bookkeeping for them. With these tools, we can quickly design,
+implement, and modify all dense linear algebra operations.
+
+The core abstractions of CuTe are hierarchically multidimensional layouts
+which can be composed with data arrays to represent tensors.
+The representation of layouts is powerful enough to represent nearly
+everything we need to implement efficient dense linear algebra.
+Layouts can also be combined and manipulated via functional composition, on which we build a large set of common operations such as tiling and partitioning.
+
+CUTLASS 3.0 and beyond adopts CuTe throughout the GEMM hierarchy in its templates.
+This greatly simplifies the design and improves code composability and readability.
+More documentation specific to CuTe can be found in its
+[dedicated documentation directory](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html).
 
 # Compatibility
 
-CUTLASS requires a C++17 host compiler and 
-performs best when built with the [**CUDA 12.2 Toolkit**](https://developer.nvidia.com/cuda-toolkit).
-It is also compatible with CUDA 11.4, CUDA 11.5, CUDA 11.6, CUDA 11.7, CUDA 11.8, CUDA 12.0 and CUDA 12.1.
+Minimum requirements:
+
+- Architecture: Volta (compute capability 7.0)
+- Compiler: Must support at least C++17
+- CUDA Toolkit version: 11.4
+
+CUTLASS requires a C++17 host compiler and
+performs best when built with the [**CUDA 12.8 Toolkit**](https://developer.nvidia.com/cuda-downloads).
+It is also compatible with CUDA 11.4, CUDA 11.5, CUDA 11.6, CUDA 11.7, CUDA 11.8, and all other CUDA 12.x versions.
 
 ## Operating Systems
+
 We have tested the following environments.
 
 |**Operating System** | **Compiler** |
@@ -106,69 +218,104 @@ We have tested the following environments.
 | Ubuntu 18.04 | GCC 7.5.0  |
 | Ubuntu 20.04 | GCC 10.3.0 |
 | Ubuntu 22.04 | GCC 11.2.0 |
-| Windows 10.0 | Visual Studio 2019 v16.11.27 |
 
-Note: We plan to add Clang compiler support soon.
 Note: GCC 8.5.0 has known regressions regarding fold expressions and overloaded operators. Using GCC 7.5.0 or (preferred) GCC >= 9 is recommended.
 
+Note: CUTLASS 3.x builds are known to be down on Windows platforms for all CUDA toolkits.
+CUTLASS team is working on a fix.
+
 ## Hardware
+
 CUTLASS runs successfully on the following NVIDIA GPUs, and it is expected to be efficient on Volta, Turing, Ampere, Ada, and Hopper architecture based NVIDIA GPUs.
 
 |**GPU**|**CUDA Compute Capability**|**Minimum CUDA Toolkit Required by CUTLASS-3**|
 |---|---|---|
 |NVIDIA V100 Tensor Core GPU            |7.0|11.4|
 |NVIDIA TitanV                          |7.0|11.4|
-|NVIDIA GeForce RTX 2080 TI, 2080, 2070 |7.5|11.4|
+|NVIDIA GeForce RTX 20x0 series         |7.5|11.4|
 |NVIDIA T4                              |7.5|11.4|
 |NVIDIA A100 Tensor Core GPU            |8.0|11.4|
 |NVIDIA A10                             |8.6|11.4|
-|NVIDIA GeForce RTX 3090                |8.6|11.4|
-|NVIDIA GeForce RTX 4090                |8.9|11.8|
+|NVIDIA GeForce RTX 30x0 series         |8.6|11.4|
+|NVIDIA GeForce RTX 40x0 series         |8.9|11.8|
 |NVIDIA L40                             |8.9|11.8|
 |NVIDIA H100 Tensor Core GPU            |9.0|11.8|
+|NVIDIA H200 Tensor Core GPU            |9.0|11.8|
+|NVIDIA B200 Tensor Core GPU            |10.0|12.8|
+|NVIDIA B300 Tensor Core GPU            |10.3|13.0|
+|NVIDIA DRIVE Thor                      |11.0|13.0|
+|NVIDIA GeForce RTX 50x0 series         |12.0|12.8|
+|NVIDIA DGX Spark                       |12.1|13.0|
 
 ## Target Architecture
 
-In general, PTX code generated for one target architecture can be run on future architectures (i.e., it is forward compatible).  However, CUDA 12.0 introduced the concept of "architecture-accelerated features" whose PTX does not have forward compatibility guarantees. Several Hopper PTX instructions fall under this category of architecture-accelerated features, and thus require a `sm_90a` target architecture (note the "a" appended). For more details on this and other architecture-accelerated instructions, please refer to the [CUDA Documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#feature-availability).
+In general, PTX code generated for one target architecture can be run on future architectures
+(i.e., it is forward compatible).
+However, CUDA 12.0 introduced the concept of "architecture-accelerated features" whose
+PTX does not have forward compatibility guarantees.
+Several Hopper and Blackwell PTX instructions fall under this category of
+architecture-accelerated features, and thus require a `sm_90a` or `sm100a` target architecture
+(note the "a" appended). For more details on this and other architecture-accelerated instructions,
+please refer to the [CUDA Documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#feature-availability).
 
-The target architecture information is passed on to CUTLASS via the cmake flag `CUTLASS_NVCC_ARCHS`. In order to maximize performance on Hopper GH100, users are required to build CUTLASS with `90a` as the target architecture. If a user accidentally builds a kernel which uses SM90a features (e.g. Hopper Tensor Core Instructions), using the SM90 target (note the lack of "a"), with either CTK 12 or 11.8, the kernel is expected to fail with a runtime error.
+The target architecture information is passed on to CUTLASS via the cmake flag
+`CUTLASS_NVCC_ARCHS`. In order to maximize performance on Hopper GH100,
+users are required to build CUTLASS with `90a` as the target architecture.
+If a user accidentally builds a kernel which uses SM90a features
+(e.g. Hopper Tensor Core Instructions), using the SM90 target
+(note the lack of "a"), with either CUDA Toolkit 12 or 11.8,
+the kernel is expected to fail with a runtime error.
 
 ```
-cmake .. -DCUTLASS_NVCC_ARCHS="90a" 
+cmake .. -DCUTLASS_NVCC_ARCHS="90a"
+```
+Or
+
+```
+cmake .. -DCUTLASS_NVCC_ARCHS="100a"
 ```
 
-Please refer to the [functionality documentation](media/docs/functionality.md) for details on which kernels require which target architectures.
+Note: The NVIDIA Blackwell SM100 architecture used in the datacenter
+products has a different compute capability than the one underpinning
+NVIDIA Blackwell GeForce RTX 50 series GPUs (SM120). As a result, kernels
+compiled for Blackwell SM100 architecture with arch conditional features
+(using `sm100a`) are not compatible with RTX 50 series GPUs.
+
+Please refer to the [functionality documentation](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/functionality.html)
+for details on which kernels require which target architectures.
 
 # Documentation
 
 CUTLASS is described in the following documents and the accompanying
 [Doxygen documentation](https://nvidia.github.io/cutlass).
 
-- [Quick Start Guide](/media/docs/quickstart.md) - build and run CUTLASS
-- [Functionality](/media/docs/functionality.md) - summarizes functionality available in CUTLASS
-- [Efficient GEMM in CUDA](media/docs/efficient_gemm.md) - describes how GEMM kernels may be implemented efficiently in CUDA
-- [CUTLASS 3.x Design](media/docs/cutlass_3x_design.md) - describes the CUTLASS 3.x design, its benefits, and how CuTe enables us to write much more composable components
-- [GEMM API 3.x](media/docs/gemm_api_3x.md) - describes the CUTLASS 3.x GEMM model and C++ template concepts
-- [GEMM API 2.x](media/docs/gemm_api.md) - describes the CUTLASS 2.x GEMM model and C++ template concepts
-- [Implicit GEMM Convolution](media/docs/implicit_gemm_convolution.md) - describes 2-D and 3-D convolution in CUTLASS
-- [Code Organization](media/docs/code_organization.md) - describes the organization and contents of the CUTLASS project
-- [Terminology](media/docs/terminology.md) - describes terms used in the code
-- [Programming Guidelines](media/docs/programming_guidelines.md) - guidelines for writing efficient modern CUDA C++
-- [Fundamental types](media/docs/fundamental_types.md) - describes basic C++ classes used in CUTLASS to represent numeric quantities and arrays
-- [Layouts](media/docs/layout.md) - describes layouts of matrices and tensors in memory
-- [Tile Iterators](media/docs/tile_iterator_concept.md) - describes C++ concepts for iterating over tiles of matrices in memory
-- [CUTLASS Profiler](media/docs/profiler.md) - command-line driven profiling application
-- [CUTLASS Utilities](media/docs/utilities.md) - additional templates used to facilate rapid development
+- [Quick Start Guide](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html) - basics of building and running CUTLASS
+- [Functionality](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/functionality.html) - summarizes functionality available in CUTLASS
+- [Efficient GEMM in CUDA](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/efficient_gemm.html) - describes how GEMM kernels may be implemented efficiently in CUDA
+- [CUTLASS 3.x Design](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cutlass_3x_design.html) - describes the CUTLASS 3.x design, its benefits, and how CuTe enables us to write much more composable components
+- [GEMM API 3.x](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api_3x.html) - describes the CUTLASS 3.x GEMM model and C++ template concepts
+- [GEMM API 2.x](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api.html) - describes the CUTLASS 2.x GEMM model and C++ template concepts
+- [Implicit GEMM Convolution](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/implicit_gemm_convolution.html) - describes 2-D and 3-D convolution in CUTLASS
+- [Code Organization](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/code_organization.html) - describes the organization and contents of the CUTLASS project
+- [Terminology](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/terminology.html) - describes terms used in the code
+- [Programming Guidelines](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/programming_guidelines.html) - guidelines for writing efficient modern CUDA C++
+- [Fundamental types](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/fundamental_types.html) - describes basic C++ classes used in CUTLASS to represent numeric quantities and arrays
+- [Layouts](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/layout.html) - describes layouts of matrices and tensors in memory
+- [Tile Iterators](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/tile_iterator_concept.html) - describes C++ concepts for iterating over tiles of matrices in memory
+- [CUTLASS Profiler](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/profiler.html) - command-line driven profiling application
+- [CUTLASS Utilities](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/utilities.html) - additional templates used to facilitate rapid development
+- [Dependent kernel launch](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/dependent_kernel_launch.html) - describes a new feature in Hopper which allows overlapping dependent
+kernels in the same stream, and how it is used in CUTLASS.
 
 # Resources
 We have also described the structure of an efficient GEMM in our talk at the
 [GPU Technology Conference 2018](http://on-demand.gputechconf.com/gtc/2018/presentation/s8854-cutlass-software-primitives-for-dense-linear-algebra-at-all-levels-and-scales-within-cuda.pdf).
 
- - [CUTLASS: Software Primitives for Dense Linear Algebra at All Levels and Scales within CUDA](https://www.nvidia.com/en-us/on-demand/session/gtcsiliconvalley2018-s8854/)
- - [Developing CUDA Kernels to Push Tensor Cores to the Absolute Limit on NVIDIA A100](https://www.nvidia.com/en-us/on-demand/session/gtcsj20-s21745/)
- - [Accelerating Convolution with Tensor Cores in CUTLASS](https://www.nvidia.com/en-us/on-demand/session/gtcspring21-s31883/)
- - [Accelerating Backward Data Gradient by Increasing Tensor Core Utilization in CUTLASS](https://www.nvidia.com/en-us/on-demand/session/gtcspring22-s41996/)
- - [CUTLASS: Python API, Enhancements, and NVIDIA Hopper](https://www.nvidia.com/en-us/on-demand/session/gtcfall22-a41131/)
+- [CUTLASS: Software Primitives for Dense Linear Algebra at All Levels and Scales within CUDA](https://www.nvidia.com/en-us/on-demand/session/gtcsiliconvalley2018-s8854/)
+- [Developing CUDA Kernels to Push Tensor Cores to the Absolute Limit on NVIDIA A100](https://www.nvidia.com/en-us/on-demand/session/gtcsj20-s21745/)
+- [Accelerating Convolution with Tensor Cores in CUTLASS](https://www.nvidia.com/en-us/on-demand/session/gtcspring21-s31883/)
+- [Accelerating Backward Data Gradient by Increasing Tensor Core Utilization in CUTLASS](https://www.nvidia.com/en-us/on-demand/session/gtcspring22-s41996/)
+- [CUTLASS: Python API, Enhancements, and NVIDIA Hopper](https://www.nvidia.com/en-us/on-demand/session/gtcfall22-a41131/)
 
 # Building CUTLASS
 
@@ -176,7 +323,8 @@ CUTLASS is a header-only template library and does not need to be built to be us
 projects. Client applications should target CUTLASS's `include/` directory in their include
 paths.
 
-CUTLASS unit tests, examples, and utilities can be build with CMake starting version 3.12. 
+CUTLASS unit tests, examples, and utilities can be build with CMake.
+The minimum version of CMake is given in the [Quickstart guide](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html).
 Make sure the `CUDACXX` environment  variable points to NVCC in the CUDA Toolkit installed
 on your system.
 
@@ -216,12 +364,12 @@ All tests should pass on supported platforms, though the exact number of tests m
 
 # Project Structure
 
-CUTLASS is arranged as a header-only library along with Utilities, Tools, Examples, and unit tests. 
-[Doxygen documentation](https://nvidia.github.io/cutlass) provides a complete list of files, classes, 
+CUTLASS is arranged as a header-only library along with Utilities, Tools, Examples, and unit tests.
+[Doxygen documentation](https://nvidia.github.io/cutlass) provides a complete list of files, classes,
 and template concepts defined in the CUTLASS project.
 
-A detailed explanation of the source code organization may be found in the 
-[CUTLASS documentation](media/docs/code_organization.md), but several main components are summarized below.
+A detailed explanation of the source code organization may be found in the
+[CUTLASS documentation](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/code_organization.html), but several main components are summarized below.
 
 ## CUTLASS Template Library
 
@@ -245,7 +393,7 @@ include/                     # client applications should target this directory 
     reduction/               # bandwidth-limited reduction kernels that do not fit the "gemm" model
 
     thread/                  # simt code that can be performed within a CUDA thread
-    
+
     transform/               # code specialized for layout, type, and domain transformations
 
     *                        # core vocabulary types, containers, and basic numeric operations
@@ -270,7 +418,7 @@ include/                     # client applications should target this directory 
 
 ### CUTLASS SDK Examples
 
-[CUTLASS SDK examples](/examples) apply CUTLASS templates to implement basic computations.
+[CUTLASS SDK examples](https://github.com/NVIDIA/cutlass/tree/main/examples) apply CUTLASS templates to implement basic computations.
 
 ### Tools
 
@@ -283,9 +431,9 @@ tools/
 
   profiler/                  # CUTLASS Profiler         - command-line utility for executing operations in the
                              #                            CUTLASS Library
-  
+
   util/                      # CUTLASS Utilities        - contains numerous helper classes for
-    include/                 #                            manging tensors in device memory, reference
+    include/                 #                            managing tensors in device memory, reference
       cutlass/               #                            implementations for GEMM, random initialization
         util/                #                            of tensors, and I/O.
 ```
@@ -295,7 +443,7 @@ tools/
 The `test/unit/` directory consist of unit tests implemented with Google Test that demonstrate
 basic usage of Core API components and complete tests of the CUTLASS GEMM computations.
 
-Instructions for building and running the Unit tests are described in the [Quickstart guide](media/docs/quickstart.md).
+Instructions for building and running the Unit tests are described in the [Quickstart guide](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html).
 
 # Performance Profiling
 
@@ -309,7 +457,7 @@ $ make cutlass_profiler -j16
 
 By default, only one tile size is instantiated for each data type, math instruction, and layout.
 To instantiate all, set the following environment variable when running CMake from an empty `build/` directory.
-Beware, this results in *tens of thousands* of kernels and long build times. 
+Beware, this results in *tens of thousands* of kernels and long build times.
 This would also result in a large binary size and on some platforms linker to fail on building the library.
 Therefore, it's highly recommended to generate only a subset of kernels as demonstrated in the sub-section below.
 ```bash
@@ -320,13 +468,13 @@ $ make cutlass_profiler -j16
 
 ## Building a subset of GEMM and Convolution kernels (_reduced_ build times)
 
-To compile strictly one kernel or a small set of kernels, a comma-delimited list of kernel names with 
+To compile strictly one kernel or a small set of kernels, a comma-delimited list of kernel names with
 wildcard characters may be used to reduce the set of kernels. The following examples show building exactly one
 or a subset of kernels for NVIDIA Ampere and Turing architecture:
 
 ### Building a subset Tensor Core GEMM kernels
 
-To compile a subset of Tensor Core GEMM kernels with FP32 accumulation and FP16 input targeting NVIDIA Ampere and Turing architecture, 
+To compile a subset of Tensor Core GEMM kernels with FP32 accumulation and FP16 input targeting NVIDIA Ampere and Turing architecture,
 use the below cmake command line:
 ```bash
 $ cmake .. -DCUTLASS_NVCC_ARCHS='75;80' -DCUTLASS_LIBRARY_KERNELS=cutlass_tensorop_s*gemm_f16_*_nt_align8
@@ -415,7 +563,7 @@ $ ./tools/profiler/cutlass_profiler --kernels=sgemm --m=3456 --n=4096 --k=4096
 
 ### Building a subset of Tensor Core Convolution kernels
 
-To compile a subset of Tensor core convolution kernels implementing forward propagation (fprop) with FP32 accumulation 
+To compile a subset of Tensor core convolution kernels implementing forward propagation (fprop) with FP32 accumulation
 and FP16 input targeting NVIDIA Ampere and Turing architecture, use the below cmake command line:
 ```bash
 $ cmake .. -DCUTLASS_NVCC_ARCHS='75;80' -DCUTLASS_LIBRARY_KERNELS=cutlass_tensorop_s*fprop_optimized_f16
@@ -463,7 +611,7 @@ reference_device: Passed
 
 ### Building one Convolution CUDA kernel
 
-To compile and run one CUDA Core convolution kernel implementing forward propagation (fprop) with F32 accumulation 
+To compile and run one CUDA Core convolution kernel implementing forward propagation (fprop) with F32 accumulation
 and FP32 input targeting NVIDIA Ampere and Turing architecture, use the below cmake command line:
 ```bash
 $ cmake .. -DCUTLASS_NVCC_ARCHS='75;80' -DCUTLASS_LIBRARY_KERNELS=cutlass_simt_sfprop_optimized_128x128_8x2_nhwc
@@ -511,14 +659,14 @@ reference_device: Passed
 
 ## More Details on Compiling CUTLASS Kernels and CUTLASS Profiler
 - Please follow the links for more CMake examples on selectively compiling CUTLASS kernels:
-  - [GEMM CMake Examples](media/docs/quickstart.md#gemm-cmake-examples) 
-  - [Implicit GEMM conovlution CMake Examples](media/docs/quickstart.md#convolution-cmake-examples)
-- [Further details about the CUTLASS Profiler are described here.](media/docs/profiler.md)
+  - [GEMM CMake Examples](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html#gemm-cmake-examples)
+  - [Implicit GEMM convolution CMake Examples](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/quickstart.html#convolution-cmake-examples)
+- [Further details about the CUTLASS Profiler are described here.](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/profiler.html)
 
 
 # About
 
-CUTLASS is released by NVIDIA Corporation as Open Source software under the 
+CUTLASS is released by NVIDIA Corporation as Open Source software under the
 [3-clause "New" BSD license](LICENSE.txt).
 
 # Contributors
@@ -527,7 +675,7 @@ The official list of CUTLASS developers and contributors is available here: [CON
 
 # Copyright
 
-Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
 ```

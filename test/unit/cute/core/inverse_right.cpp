@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,24 +29,19 @@
  *
  **************************************************************************************************/
 
+//#define CUTLASS_DEBUG_TRACE_LEVEL 1
+
 #include "cutlass_unit_test.h"
 
 #include <cutlass/trace.h>
 #include <iostream>
-
+#include <cute/layout.hpp>
+#include <cute/layout_composed.hpp>  // cute::composition
+#include <cute/swizzle.hpp>          // cute::Swizzle
+#include <cute/swizzle_layout.hpp>   // cute::composition
 #include <cute/tensor.hpp>
 
 using namespace cute;
-
-template <class Layout, class InvLayout>
-void
-test_postconditions(Layout const& layout, InvLayout const& inv_layout)
-{
-  for (int i = 0; i < size(inv_layout); ++i) {
-    //printf("%3d: %3d  %3d\n", i, int(inv_layout(i)), int(layout(inv_layout(i))));
-    EXPECT_EQ(layout(inv_layout(i)),  i);
-  }
-}
 
 template <class Layout>
 void
@@ -55,9 +50,13 @@ test_right_inverse(Layout const& layout)
   auto inv_layout = right_inverse(layout);
 
   CUTLASS_TRACE_HOST(layout << " ^ -1\n" << "  =>  \n" << inv_layout);
-  CUTLASS_TRACE_HOST("Composition: " << coalesce(composition(layout, inv_layout)) << std::endl);
 
-  test_postconditions(layout, inv_layout);
+  for (int i = 0; i < size(inv_layout); ++i) {
+    //printf("%3d: %3d  %3d\n", i, int(inv_layout(i)), int(layout(inv_layout(i))));
+    EXPECT_EQ(layout(inv_layout(i)),  i);
+  }
+
+  CUTLASS_TRACE_HOST("Composition: " << coalesce(composition(layout, inv_layout)) << std::endl);
 }
 
 TEST(CuTe_core, Inverse_right)
@@ -83,13 +82,6 @@ TEST(CuTe_core, Inverse_right)
   }
 
   {
-  auto layout = Layout<Shape <_4>,
-                       Stride<_0>>{};
-
-  test_right_inverse(layout);
-  }
-
-  {
   auto layout = Layout<Shape <Shape <_1,_1>>,
                        Stride<Stride<_0,_0>>>{};
 
@@ -104,8 +96,8 @@ TEST(CuTe_core, Inverse_right)
   }
 
   {
-  auto layout = Layout<Shape <_1>,
-                       Stride<_1>>{};
+  auto layout = Layout<Shape <_4>,
+                       Stride<_0>>{};
 
   test_right_inverse(layout);
   }
@@ -178,6 +170,49 @@ TEST(CuTe_core, Inverse_right)
   test_right_inverse(layout);
   }
 
+  {
+  auto layout = Layout<Shape<_128,_128>,Stride<_65536,_1>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape<_128,_160>,Stride<_65536,_1>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape<_128,_3,_160>,Stride<_65536,_512,_1>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape<_128, _64>, Stride<Int<131072>, Int<2>>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape<_32,_4,_4,_4>, Stride<_262144,_4,Int<8388608>,_1>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape<_2,_2,_2>, Stride<_4,_0,_1>>{};
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = Layout<Shape <Shape <Shape <Shape <Shape <      _32, _4>, _1>, Shape < _32,   _2>>,         _4>, _1, Shape <_2,  _2>,  _2>,
+                       Stride<Stride<Stride<Stride<Stride<C<262144>, _4>, _0>, Stride<C<0>, C<1>>>, C<8388608>>, _0, Stride<_2, _16>, _32>>{};
+
+  test_right_inverse(layout);
+  }
+
   CUTLASS_TRACE_HOST("-------------------------------");
   CUTLASS_TRACE_HOST("Dynamic shapes/strides"         );
   CUTLASS_TRACE_HOST("-------------------------------");
@@ -196,6 +231,24 @@ TEST(CuTe_core, Inverse_right)
 
   {
   auto layout = make_layout(make_shape(4, 2), make_stride(Int<1>{}, 4));
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = make_layout(Shape<_2, _4>{}, make_stride(4, Int<1>{}));
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = make_layout(make_shape(2, Int<4>{}), make_stride(4, Int<1>{}));
+
+  test_right_inverse(layout);
+  }
+
+  {
+  auto layout = make_layout(make_shape(2, 4), make_stride(4, Int<1>{}));
 
   test_right_inverse(layout);
   }

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -91,7 +91,7 @@ struct Gemm {
       A_tile[i] = ElementA(0);
     }
 
-    for (int j = 0; j < OutputTile::kColumn; ++j) {
+    for (int j = 0; j < OutputTile::kRow; ++j) {
       B_tile[j] = ElementB(0);
     }
 

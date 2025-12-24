@@ -1,5 +1,12 @@
 # Installation
 
+## Installing a stable release
+
+Stable releases of the CUTLASS Python interface are available via the `nvidia-cutlass` PyPI package. Any other packages with the name `cutlass` are not affiliated with NVIDIA CUTLASS.
+```bash
+pip install nvidia-cutlass
+```
+
 ## Installing from source
 
 Installing from source requires the latest CUDA Toolkit that matches the major.minor of CUDA Python installed.
@@ -9,28 +16,57 @@ Prior to installing the CUTLASS Python interface, one may optionally set the fol
 * `CUDA_INSTALL_PATH`: the path to the installation of CUDA
 
 If these environment variables are not set, the installation process will infer them to be the following:
-* `CUTLASS_PATH`: one directory level above the current directory (i.e., `$(pwd)/..`)
+* `CUTLASS_PATH`: either one directory level above the current directory (i.e., `$(pwd)/..`) if installed locally or in the `source` directory of the location in which `cutlass_library` was installed
 * `CUDA_INSTALL_PATH`: the directory holding `/bin/nvcc` for the first version of `nvcc` on `$PATH` (i.e., `which nvcc | awk -F'/bin/nvcc' '{print $1}'`)
 
 **NOTE:** The version of `cuda-python` installed must match the CUDA version in `CUDA_INSTALL_PATH`.
 
 ### Installing a developer-mode package
-The CUTLASS Python interface can currently be installed via:
+The CUTLASS Python interface can currently be installed by navigating to the root of the CUTLASS directory and performing
 ```bash
-python setup.py develop --user
+pip install .
 ```
-This will allow changes to the Python interface source to be reflected when using the Python interface.
 
-We plan to add support for installing via `python setup.py install` in a future release.
+If you would like to be able to make changes to CULASS Python interface and have them reflected when using the interface, perform:
+```bash
+pip install -e .
+```
 
 ## Docker
-To ensure that you have all of the necessary Python modules for running the examples using the
-CUTLASS Python interface, we recommend using one of the Docker images located in the docker directory.
+We recommend using the CUTLASS Python interface via an [NGC PyTorch Docker container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch):
 
-For example, to build and launch a container that uses CUDA 12.1 via an NGC PyTorch container, run:
 ```bash
-docker build -t cutlass-cuda12.1:latest -f docker/Dockerfile-cuda12.1-pytorch .
-docker run --gpus all -it --rm cutlass-cuda12.1:latest
+docker run --gpus all -it --rm nvcr.io/nvidia/pytorch:23.08-py3
 ```
 
-The CUTLASS Python interface has been tested with CUDA 11.8, 12.0, and 12.1 on Python 3.8.10 and 3.9.7.
+## Copyright
+
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+
+```
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+  3. Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```

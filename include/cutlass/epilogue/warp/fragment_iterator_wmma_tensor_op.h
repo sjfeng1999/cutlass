@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,8 +42,6 @@
 */
 
 #pragma once
-
-#if !(defined(__clang__) && defined(__CUDA__))
 
 #include "cutlass/wmma_array.h"
 #include "cutlass/layout/matrix.h"
@@ -157,8 +155,4 @@ public:
 } // namespace cutlass
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#else
-#error (defined(__clang__) && defined(__CUDA__))
-#endif // !defined(__clang__)
 

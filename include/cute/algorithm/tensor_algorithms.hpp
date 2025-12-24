@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,7 @@
 #pragma once
 
 #include <cute/config.hpp>
-
-#include <cute/tensor.hpp>
+#include <cute/tensor_impl.hpp>
 
 namespace cute
 {
@@ -50,7 +49,7 @@ for_each(Tensor<Engine,Layout> const& tensor, UnaryOp&& op)
 {
   CUTE_UNROLL
   for (int i = 0; i < size(tensor); ++i) {
-    static_cast<UnaryOp&&>(op)(tensor(i));
+    op(tensor(i));
   }
 }
 
@@ -61,7 +60,7 @@ for_each(Tensor<Engine,Layout>& tensor, UnaryOp&& op)
 {
   CUTE_UNROLL
   for (int i = 0; i < size(tensor); ++i) {
-    static_cast<UnaryOp&&>(op)(tensor(i));
+    op(tensor(i));
   }
 }
 
@@ -71,7 +70,7 @@ CUTE_HOST_DEVICE constexpr
 void
 for_each(Tensor<Engine,Layout>&& tensor, UnaryOp&& op)
 {
-  return for_each(tensor, static_cast<UnaryOp&&>(op));
+  return for_each(tensor, op);
 }
 
 //
@@ -86,7 +85,7 @@ transform(Tensor<Engine,Layout>& tensor, UnaryOp&& op)
 {
   CUTE_UNROLL
   for (int i = 0; i < size(tensor); ++i) {
-    tensor(i) = static_cast<UnaryOp&&>(op)(tensor(i));
+    tensor(i) = op(tensor(i));
   }
 }
 
@@ -96,63 +95,84 @@ CUTE_HOST_DEVICE constexpr
 void
 transform(Tensor<Engine,Layout>&& tensor, UnaryOp&& op)
 {
-  return transform(tensor, std::forward<UnaryOp>(op));
+  return transform(tensor, op);
 }
 
 // Similar to std::transform transforms one tensors and assigns it to another
-template <class EngineIn, class LayoutIn, class EngineOut, class LayoutOut, class UnaryOp>
+template <class EngineIn, class LayoutIn,
+          class EngineOut, class LayoutOut,
+          class UnaryOp>
 CUTE_HOST_DEVICE constexpr
 void
-transform(Tensor<EngineIn,LayoutIn>& tensor_in, Tensor<EngineOut,LayoutOut>& tensor_out, UnaryOp&& op)
+transform(Tensor<EngineIn, LayoutIn > const& tensor_in,
+          Tensor<EngineOut,LayoutOut>      & tensor_out,
+          UnaryOp&& op)
 {
   CUTE_UNROLL
   for (int i = 0; i < size(tensor_in); ++i) {
-    tensor_out(i) = static_cast<UnaryOp&&>(op)(tensor_in(i));
+    tensor_out(i) = op(tensor_in(i));
   }
 }
 
 // Accept mutable temporaries
 template <class EngineIn, class LayoutIn,
-          class EngineOut, class LayoutOut, class UnaryOp>
+          class EngineOut, class LayoutOut,
+          class UnaryOp>
 CUTE_HOST_DEVICE constexpr
 void
-transform(Tensor<EngineIn,LayoutIn>&& tensor_in, Tensor<EngineOut,LayoutOut>&& tensor_out, UnaryOp&& op)
+transform(Tensor<EngineIn, LayoutIn > const& tensor_in,
+          Tensor<EngineOut,LayoutOut>     && tensor_out,
+          UnaryOp&& op)
 {
   return transform(tensor_in, tensor_out, op);
 }
 
 // Similar to std::transform with a binary operation
-// Takes two tensors as input and one tensor as output. 
-// Applies the binary_op to tensor_in1 and and tensor_in2 and
+// Takes two tensors as input and one tensor as output.
+// Applies the binary_op to tensor_in1 and tensor_in2 and
 // assigns it to tensor_out
 template <class EngineIn1, class LayoutIn1,
           class EngineIn2, class LayoutIn2,
-          class EngineOut, class LayoutOut, class BinaryOp>
+          class EngineOut, class LayoutOut,
+          class BinaryOp>
 CUTE_HOST_DEVICE constexpr
 void
-transform(Tensor<EngineIn1,LayoutIn1>& tensor_in1,
-          Tensor<EngineIn2,LayoutIn2>& tensor_in2,
-          Tensor<EngineOut,LayoutOut>& tensor_out, 
+transform(Tensor<EngineIn1,LayoutIn1> const& tensor_in1,
+          Tensor<EngineIn2,LayoutIn2> const& tensor_in2,
+          Tensor<EngineOut,LayoutOut>      & tensor_out,
           BinaryOp&& op)
 {
   CUTE_UNROLL
   for (int i = 0; i < size(tensor_in1); ++i) {
-    tensor_out(i) = static_cast<BinaryOp&&>(op)(tensor_in1(i), tensor_in2(i));
+    tensor_out(i) = op(tensor_in1(i), tensor_in2(i));
   }
 }
 
 // Accept mutable temporaries
 template <class EngineIn1, class LayoutIn1,
           class EngineIn2, class LayoutIn2,
-          class EngineOut, class LayoutOut, class BinaryOp>
+          class EngineOut, class LayoutOut,
+          class BinaryOp>
 CUTE_HOST_DEVICE constexpr
 void
-transform(Tensor<EngineIn1,LayoutIn1>&& tensor_in1, 
-          Tensor<EngineIn2,LayoutIn2>&& tensor_in2,
-          Tensor<EngineOut,LayoutOut>&& tensor_out,
+transform(Tensor<EngineIn1,LayoutIn1> const& tensor_in1,
+          Tensor<EngineIn2,LayoutIn2> const& tensor_in2,
+          Tensor<EngineOut,LayoutOut>     && tensor_out,
           BinaryOp&& op)
 {
   return transform(tensor_in1, tensor_in2, tensor_out, op);
 }
+
+namespace lazy {
+
+template <class Engine, class Layout, class Fn>
+CUTE_HOST_DEVICE constexpr
+auto
+transform(cute::Tensor<Engine,Layout> const& t, Fn const& fn)
+{
+  return cute::make_tensor(cute::make_transform_iter(fn, t.data()), t.layout());
+}
+
+} // end namespace lazy
 
 } // end namespace cute

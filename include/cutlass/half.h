@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@
     \brief Defines a class for using IEEE half-precision floating-point types in host or
       device code.
 */
+
 #pragma once
 
 #ifndef CUTLASS_ENABLE_F16C
@@ -67,7 +68,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Optionally target F16C extentions to accelerate half-precision conversion.
+// Optionally target F16C extensions to accelerate half-precision conversion.
 #if !defined(__CUDA_ARCH__) && (CUTLASS_ENABLE_F16C)
 #if defined(_MSC_VER)
 
@@ -157,7 +158,6 @@ public:
 #endif // !defined(__CUDA_ARCH__) && CUTLASS_ENABLE_F16C
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 namespace cutlass {
 
@@ -311,9 +311,9 @@ struct alignas(2) half_t {
     #endif
 
     uint16_t const &h = x.storage;
-    int sign = ((h >> 15) & 1);
-    int exp = ((h >> 10) & 0x1f);
-    int mantissa = (h & 0x3ff);
+    uint32_t sign = ((h >> 15) & 1);
+    uint32_t exp = ((h >> 10) & 0x1f);
+    uint32_t mantissa = (h & 0x3ff);
     unsigned f = 0;
 
     if (exp > 0 && exp < 31) {
@@ -602,38 +602,48 @@ struct numeric_limits<cutlass::half_t> {
   static int const digits = 10;
 
   /// Least positive value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t min() { return cutlass::half_t::bitcast(0x0001); }
 
   /// Minimum finite value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t lowest() { return cutlass::half_t::bitcast(0xfbff); }
 
   /// Maximum finite value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t max() { return cutlass::half_t::bitcast(0x7bff); }
 
   /// Returns smallest finite value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t epsilon() { return cutlass::half_t::bitcast(0x1800); }
 
   /// Returns maximum rounding error
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t round_error() { return cutlass::half_t(0.5f); }
 
   /// Returns positive infinity value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t infinity() { return cutlass::half_t::bitcast(0x7c00); }
 
   /// Returns quiet NaN value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t quiet_NaN() { return cutlass::half_t::bitcast(0x7fff); }
 
   /// Returns signaling NaN value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t signaling_NaN() { return cutlass::half_t::bitcast(0x7fff); }
 
   /// Returns smallest positive subnormal value
+  CUTLASS_HOST_DEVICE
   static cutlass::half_t denorm_min() { return cutlass::half_t::bitcast(0x0001); }
 };
 }  // namespace std
 #endif
 
+namespace cutlass {
 namespace platform {
 
-/// std::numeric_limits
+/// Forward Declaration
 template <class T>
 struct numeric_limits;
 
@@ -696,6 +706,7 @@ struct numeric_limits<cutlass::half_t> {
   static cutlass::half_t denorm_min() { return cutlass::half_t::bitcast(0x0001); }
 };
 }  // namespace platform 
+}  // namespace cutlass
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -907,12 +918,12 @@ half_t operator--(half_t & lhs, int) {
 //
 
 CUTLASS_HOST_DEVICE
-cutlass::half_t operator "" _hf(long double x) {
+cutlass::half_t operator""_hf(long double x) {
   return cutlass::half_t(float(x));
 }
 
 CUTLASS_HOST_DEVICE
-cutlass::half_t operator "" _hf(unsigned long long int x) {
+cutlass::half_t operator""_hf(unsigned long long int x) {
   return cutlass::half_t(int(x));
 }
 

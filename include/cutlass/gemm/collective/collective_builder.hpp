@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,52 +31,32 @@
 #pragma once
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
+#include "cutlass/gemm/collective/collective_mma_decl.hpp"
 #include "cutlass/gemm/collective/collective_mma.hpp"
 
-namespace cutlass::gemm::collective {
-
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Used to specify stage counts or dispatch to automatic computation of stage count
-template<int num_stages>
-struct StageCount { static constexpr int value = num_stages; };
-
-template<int carveout_bytes>
-struct StageCountAutoCarveout { static constexpr int bytes = carveout_bytes; };
-
-using StageCountAuto = StageCountAutoCarveout<0>;
-
-// Used to automatically let the builder pick the kernel schedule.
-// Can be overridden with kernel schedule tags in cutlass/gemm/dispatch_policy.hpp
-struct KernelScheduleAuto {};
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-template <
-  class ArchTag,
-  class OpClass,
-  class ElementA,
-  class GmemLayoutA,
-  int AlignmentA,
-  class ElementB,
-  class GmemLayoutB,
-  int AlignmentB,
-  class ElementAccumulator,
-  class TileShape_MNK,
-  class ClusterShape_MNK,
-  class StageCountType,
-  class KernelScheduleType,
-  class Enable = void
->
-struct CollectiveBuilder {
-  static_assert(sizeof(ElementA) == 0, "Could not build a collective for given parameters.");
-};
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-} // namespace cutlass::gemm::collective
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
+#include "cutlass/gemm/collective/collective_builder_decl.hpp"
 #include "cutlass/gemm/collective/builders/sm90_gmma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm90_sparse_gmma_builder.inl"
+#if !defined(__CUDACC_RTC__) 
+#include "cutlass/gemm/collective/builders/sm100_umma_builder.inl"              
+#include "cutlass/gemm/collective/builders/sm100_9xBF16_umma_builder.inl"       
+#include "cutlass/gemm/collective/builders/sm100_sparse_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_blockscaled_umma_builder.inl"  
+#include "cutlass/gemm/collective/builders/sm100_blockwise_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_blockscaled_sparse_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_simt_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_mixed_input_umma_builder.inl"       
+#include "cutlass/gemm/collective/builders/sm100_cpasync_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_mixed_tma_cpasync_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm100_blockscaled_mixed_tma_cpasync_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm103_blockscaled_umma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm120_mma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm120_blockscaled_mma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm120_sparse_mma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm120_blockscaled_sparse_mma_builder.inl"
+#include "cutlass/gemm/collective/builders/sm120_blockwise_mma_builder.inl"
+#endif
+
 /////////////////////////////////////////////////////////////////////////////////////////////////

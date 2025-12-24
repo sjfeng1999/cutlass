@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,12 +39,8 @@
     defined in cutlass/tensor_ref.h.
 */
 #pragma once
-#if defined(__CUDACC_RTC__)
-#include <cuda/std/cassert>
-#else
-#include "assert.h"
-#endif
 #include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(cassert)
 #include "cutlass/fast_math.h"
 #include "cutlass/layout/pitch_linear.h"
 #include "cutlass/layout/matrix.h"
@@ -60,8 +56,18 @@ namespace layout {
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Tag used for 3-D NWC tensors for 1D conv, only used in 3.x API
+/// Tag used for 3-D NWC tensors for 1-D convolutions; only used in 3.x API
 class TensorNWC {};
+
+/// Tag used for n-D KCSRT tensors for n-D convolutions; only used in 3.x API for wgrad output layouts
+class TensorKCS {};
+class TensorKCSR {};
+class TensorKCSRT {};
+
+/// Tag used for n-D CSRTK tensors for n-D convolutions; only used in 3.x API for wgrad output layouts
+class TensorCSK {};
+class TensorCSRK {};
+class TensorCSRTK {};
 
 /// Mapping function for 4-D NHWC tensors.
 class TensorNHWC {
@@ -631,7 +637,6 @@ public:
     return extent.n() * stride_[3];
   }
 };
-
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 

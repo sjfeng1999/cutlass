@@ -1,27 +1,36 @@
 # PyCUTLASS Examples
 
-**NOTE:** This directory contains examples for PyCUTLASS, a Python library providing low-level
-building blocks for emitting CUTLASS C++ kernels. For examples using CUTLASS's Pythonic interface,
-see the [examples/python](/examples/python) directory.
+This directory contains deprecated examples for PyCUTLASS, a precursor to the CUTLASS Python interface.
+For examples of using CUTLASS's actively-maintained Pythonic interface, see the [examples/python](/examples/python) directory.
 
-Two types of examples are provided:
-* _Basic examples_: minimal examples that illustrate how to set up GEMMs, convolutions, and grouped GEMM operations
-* [_Customizable examples_](customizable): examples that allow one to specify a variety of template parameters for the given kernel
+# Copyright
 
-## Setting up the Python interface
-Please follow the instructions [here](/python/README.md#installation) to set up the PyCUTLASS.
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
 
-## Running examples
-Each of the basic examples can be run as follows:
-```shell
-# Run the GEMM example
-python gemm.py
-
-# Run the Conv2d example
-python conv2d.py
-
-# Run the grouped GEMM example
-python gemm_grouped.py
 ```
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
 
-To run the customizable examples, refer to the README in the [customizable](customizable) directory.
+  1. Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+  3. Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```

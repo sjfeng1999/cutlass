@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -123,6 +123,31 @@ using tuple_seq = make_seq<tuple_size<remove_cvref_t<Tuple>>::value>;
 
 template <class Tuple>
 using tuple_rseq = make_rseq<tuple_size<remove_cvref_t<Tuple>>::value>;
+
+//
+// Convert a parameter pack to an int sequence
+//
+
+template <class T>
+struct to_seq;
+
+template <>
+struct to_seq<integer_sequence<int>> {
+  using type = seq<>;
+};
+
+template <int I, int... Is>
+struct to_seq<integer_sequence<int, I, Is...>> {
+  using type = seq<I, Is...>;
+};
+
+template <template <class...> class TupleLike, class... Ts>
+struct to_seq<TupleLike<Ts...>> {
+  using type = seq<Ts::value...>;
+};
+
+template <class T>
+using to_seq_t = typename to_seq<T>::type;
 
 //
 // Specialize cute::tuple-traits for std::integer_sequence

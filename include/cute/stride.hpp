@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,14 +30,22 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/int_tuple.hpp>
+#include <cute/config.hpp>                     // CUTE_HOST_DEVICE
+#include <cute/util/type_traits.hpp>           // cute::__CUTE_REQUIRES
+#include <cute/container/tuple.hpp>            // cute::is_tuple
+#include <cute/numeric/integral_constant.hpp>  // cute::is_integral
+#include <cute/numeric/integer_sequence.hpp>   // cute::seq
+#include <cute/numeric/math.hpp>               // cute::divmod
+#include <cute/numeric/arithmetic_tuple.hpp>   // cute::basis_get
+#include <cute/algorithm/functional.hpp>       // cute::identity
+#include <cute/algorithm/tuple_algorithms.hpp> // cute::fold
+#include <cute/int_tuple.hpp>                  // cute::is_congruent
 
 namespace cute
 {
 
-/** crd2idx maps a coordinate within <Shape,Stride> to an index
+/** crd2idx(c,s,d) maps a coordinate within <Shape,Stride> to an index
+ *
  * This is computed as follows:
  *  [coord, shape, and stride are all integers => step forward by stride]
  * op(c, s, d)             => c * d
@@ -46,7 +54,6 @@ namespace cute
  *  [coord, shape, and stride are all tuples => consider each mode independently]
  * op((c,C), (s,S), (d,D)) => op(c, s, d) + op((C), (S), (D))
  */
-
 template <class Coord, class Shape, class Stride>
 CUTE_HOST_DEVICE constexpr
 auto
@@ -75,9 +82,13 @@ crd2idx_itt(CInt   const& coord,
 {
   if constexpr (sizeof...(Is) == 0) {  // Avoid recursion and mod on single/last iter
     return crd2idx(coord, get<I0>(shape), get<I0>(stride));
+  } else if constexpr (is_constant<0, CInt>::value) {
+    return crd2idx(_0{}, get<I0>(shape), get<I0>(stride))
+         + (_0{} + ... + crd2idx(_0{}, get<Is>(shape), get<Is>(stride)));
   } else {                             // General case
-    return crd2idx(coord % product(get<I0>(shape)), get<I0>(shape), get<I0>(stride))
-         + crd2idx_itt(coord / product(get<I0>(shape)), shape, stride, seq<Is...>{});
+    auto [div, mod] = divmod(coord, product(get<I0>(shape)));
+    return crd2idx(mod, get<I0>(shape), get<I0>(stride))
+         + crd2idx_itt(div, shape, stride, seq<Is...>{});
   }
 
   CUTE_GCC_UNREACHABLE;
@@ -112,10 +123,6 @@ crd2idx(Coord  const& coord,
   CUTE_GCC_UNREACHABLE;
 }
 
-//
-// If we know Stride is default [CompactColMajor], then we can take shortcuts
-//
-
 namespace detail {
 
 template <class CTuple, class STuple, int I0, int... Is>
@@ -135,26 +142,31 @@ crd2idx_horner(CTuple const& coord,
 
 } // end namespace detail
 
+/** crd2idx(c,s) maps a coordinate within Shape to an index
+ * via a colexicographical enumeration of coordinates in Shape.
+ * i = c0 + s0 * (c1 + s1 * (c2 + s2 * ...))
+ */
 template <class Coord, class Shape>
 CUTE_HOST_DEVICE constexpr
 auto
 crd2idx(Coord const& coord,
         Shape const& shape)
 {
-  static_assert(decltype(congruent(coord,shape))::value, "Mismatched Ranks");
-  if constexpr (is_tuple<Shape>::value) {
-    // Flatten and apply Horner's method
-    auto flat_coord = flatten(coord);
-    auto flat_shape = flatten(shape);
-    return detail::crd2idx_horner(flat_coord, flat_shape, tuple_seq<decltype(flat_shape)>{});
-  } else {
+  if constexpr (is_integral<Coord>::value) {  // Coord is already an index
     return coord;
+  } else if constexpr (is_integral<Shape>::value) {
+    static_assert(dependent_false<Shape>, "Invalid parameters");
+  } else {                                    // Make congruent, flatten, and apply Horner's method
+    static_assert(tuple_size<Coord>::value == tuple_size<Shape>::value, "Mismatched Ranks");
+    auto flat_coord = flatten(coord);
+    auto flat_shape = flatten(product_like(shape, coord));
+    return detail::crd2idx_horner(flat_coord, flat_shape, tuple_seq<decltype(flat_shape)>{});
   }
 
   CUTE_GCC_UNREACHABLE;
 }
 
-/** idx2crd splits an index to a coordinate within <Shape,Stride>.
+/** idx2crd(i,s,d) splits an index into a coordinate within <Shape,Stride>.
  *
  * This is computed as follows:
  *  [index, shape, and stride are all integers => determine 1D coord]
@@ -167,7 +179,6 @@ crd2idx(Coord const& coord,
  * NOTE: This only works for compact shape+stride layouts. A more general version would
  *       apply to all surjective layouts
  */
-
 template <class Index, class Shape, class Stride>
 CUTE_HOST_DEVICE constexpr
 auto
@@ -204,15 +215,13 @@ idx2crd(Index  const& idx,
   CUTE_GCC_UNREACHABLE;
 }
 
-//
-// If we know Stride is default [CompactColMajor], then we can take shortcuts
-//
-
-//(idx / 1) % s0
-//(idx / s0) % s1
-//(idx / (s0 * s1)) % s2
-//...
-
+/** idx2crd(i,s) splits an index into a coordinate within Shape
+ * via a colexicographical enumeration of coordinates in Shape.
+ * c0 = (idx / 1) % s0
+ * c1 = (idx / s0) % s1
+ * c2 = (idx / (s0 * s1)) % s2
+ * ...
+ */
 template <class Index, class Shape>
 CUTE_HOST_DEVICE constexpr
 auto
@@ -228,7 +237,7 @@ idx2crd(Index const& idx,
     }
   } else {
     if constexpr (is_tuple<Shape>::value) {      // "int" tuple
-      return idx2crd(idx, shape, compact_col_major(shape));
+      return transform_leaf(as_arithmetic_tuple(crd2idx(idx, shape, make_basis_like(shape))), identity{});
     } else {                                     // "int" "int"
       return idx;
     }
@@ -393,20 +402,26 @@ compact_row_major(Shape   const& shape,
 
 namespace detail {
 
-template <class Shape, class Order, class OrigShape, class OrigOrder>
+// @pre weakly_congruent(order, shape)
+// @pre is_congruent<RefShape, RefOrder>
+// @pre is_static<Order>
+// @pre is_static<RefOrder>
+template <class Shape, class Order, class RefShape, class RefOrder>
 CUTE_HOST_DEVICE constexpr
 auto
 compact_order(Shape const& shape, Order const& order,
-              OrigShape const& orig_shape, OrigOrder const& orig_order)
+              RefShape const& ref_shape, RefOrder const& ref_order)
 {
   if constexpr (is_tuple<Order>::value) {
-    return transform(shape, order, [&](auto const& x, auto const& y) { return compact_order(x, y, orig_shape, orig_order); });
+    static_assert(tuple_size<Shape>::value == tuple_size<Order>::value, "Need equal rank of shape and order");
+    return transform(shape, order, [&](auto const& s, auto const& o) { return compact_order(s, o, ref_shape, ref_order); });
   } else {
-    auto d = product(transform(orig_shape, orig_order,
-                               [&](auto const& s, auto const& o) {
-                                  return conditional_return(o < order, product(s), Int<1>{});
-                                }));
-    return compact_col_major(shape, d);
+    // Compute the starting stride for this shape by accumulating all shapes corresponding to lesser orders
+    auto stride_start = product(transform(ref_shape, ref_order,
+                                          [&](auto const& s, auto const& o) {
+                                            return conditional_return(o < order, s, Int<1>{});
+                                          }));
+    return compact_col_major(shape, stride_start);
   }
 
   CUTE_GCC_UNREACHABLE;
@@ -419,15 +434,34 @@ CUTE_HOST_DEVICE constexpr
 auto
 compact_order(Shape const& shape, Order const& order)
 {
-  if constexpr(is_congruent<Shape,Order>::value) {
-    return detail::compact_order(shape, order, flatten_to_tuple(shape), flatten_to_tuple(order));
-  }
-  else
-  {
-    // Here we only want to apply order to top-level subshapes and default (col-major) order on other levels
-    static_assert(rank(Shape{}) == rank(Order{}), "Need equal rank of shape and order");
-    return detail::compact_order(shape, order, shape, order);
-  }
+  auto ref_shape = flatten_to_tuple(product_like(shape, order));
+
+  auto flat_order = flatten_to_tuple(order);
+  // Find the largest static element of order
+  auto max_order = cute::fold(flat_order, Int<0>{}, [](auto v, auto order) {
+    if constexpr (is_constant<true, decltype(v < order)>::value) {
+      return order;
+    } else {
+      return v;
+    }
+
+    CUTE_GCC_UNREACHABLE;
+  });
+  // Replace any dynamic elements within order with large-static elements
+  auto max_seq = make_range<max_order+1, max_order+1+rank(flat_order)>{};
+  auto ref_order = cute::transform(max_seq, flat_order, [](auto seq_v, auto order) {
+    if constexpr (is_static<decltype(order)>::value) {
+      return order;
+    } else {
+      return seq_v;
+    }
+
+    CUTE_GCC_UNREACHABLE;
+  });
+
+  auto new_order = unflatten(ref_order, order);
+
+  return detail::compact_order(shape, new_order, ref_shape, ref_order);
 }
 
 template <class Shape>
@@ -444,6 +478,121 @@ auto
 compact_order(Shape const& shape, GenRowMajor const& major)
 {
   return compact_major<LayoutRight>(shape);
+}
+
+//
+// Coordinate iterator
+//
+
+namespace detail {
+
+template <class Coord, class Shape, class Order>
+CUTE_HOST_DEVICE constexpr
+void
+increment(Coord& coord, Shape const& shape, Order const& order)
+{
+  ++basis_get(get<0>(order), coord);
+  cute::for_each(make_range<1, tuple_size<Order>::value>{}, [&](auto i){
+    if (basis_get(get<i-1>(order), coord) == basis_get(get<i-1>(order), shape)) {
+      basis_get(get<i-1>(order), coord) = 0;
+      ++basis_get(get<i>(order), coord);
+    }
+  });
+}
+
+/** Increment a (dynamic) coord colexicographically within a shape
+ * @pre is_congruent<Coord,Shape>::value
+ * \code
+ *   auto shape = make_shape(1,2,make_shape(2,3),3);
+ *   auto coord = repeat_like(shape, 0);
+ *
+ *   for (int i = 0; i < size(shape); ++i) {
+ *     std::cout << i << ": " << coord << std::endl;
+ *     increment(coord, shape);
+ *   }
+ * \endcode
+ */
+template <class Coord, class Shape>
+CUTE_HOST_DEVICE constexpr
+void
+increment(Coord& coord, Shape const& shape)
+{
+  increment(coord, shape, flatten_to_tuple(make_basis_like(shape)));
+}
+
+} // end namespace detail
+
+struct ForwardCoordIteratorSentinel
+{};
+
+// A forward iterator for a starting coordinate in a shape's domain, and a shape.
+// The starting coordinate may be zero but need not necessarily be.
+template <class Coord, class Shape, class Order>
+struct ForwardCoordIterator
+{
+  static_assert(is_congruent<Coord, Shape>::value);
+
+  CUTE_HOST_DEVICE constexpr
+  Coord const& operator*() const { return coord; }
+  CUTE_HOST_DEVICE constexpr
+  ForwardCoordIterator& operator++() { detail::increment(coord, shape, Order{}); return *this; }
+  // Sentinel for the end of the implied range
+  CUTE_HOST_DEVICE constexpr
+  bool operator==(ForwardCoordIteratorSentinel const&) const { return basis_get(back(Order{}), coord) == basis_get(back(Order{}), shape); }
+  CUTE_HOST_DEVICE constexpr
+  bool operator!=(ForwardCoordIteratorSentinel const&) const { return basis_get(back(Order{}), coord) != basis_get(back(Order{}), shape); }
+  // NOTE: These are expensive, avoid use
+  CUTE_HOST_DEVICE constexpr
+  bool operator==(ForwardCoordIterator const& other) const { return coord == other.coord; }
+  CUTE_HOST_DEVICE constexpr
+  bool operator!=(ForwardCoordIterator const& other) const { return coord != other.coord; }
+
+  Coord coord;
+  Shape const& shape;
+};
+
+// A forward iterator for a coordinate that starts from a provided coordinate and increments in a prescribed order
+template <class Order, class Shape, class Coord>
+CUTE_HOST_DEVICE constexpr
+auto
+make_coord_iterator(Coord const& coord, Shape const& shape)
+{
+  static_assert(is_congruent<Coord, Shape>::value);
+  static_assert(is_congruent<Order, Coord>::value);
+  static_assert(is_congruent<Order, Shape>::value);
+  auto flat_order  = flatten_to_tuple(Order{});
+  auto inv_order   = transform(make_seq<rank(flat_order)>{}, [&](auto i){ return find(flat_order, i); });
+  auto basis_order = transform_leaf(inv_order, [&](auto i) { return get<i>(flatten_to_tuple(make_basis_like(shape))); });
+  return ForwardCoordIterator<Coord,Shape,decltype(basis_order)>{coord,shape};
+}
+
+// A forward iterator for a coordinate that starts from a provided coordinate and increments colex
+template <class Shape, class Coord>
+CUTE_HOST_DEVICE constexpr
+auto
+make_coord_iterator(Coord const& coord, Shape const& shape)
+{
+  static_assert(is_congruent<Coord, Shape>::value);
+  auto basis_order = flatten_to_tuple(make_basis_like(shape));
+  return ForwardCoordIterator<Coord,Shape,decltype(basis_order)>{coord,shape};
+}
+
+// A forward iterator for a coordinate that starts from zero and increments in a prescribed order
+template <class Order, class Shape>
+CUTE_HOST_DEVICE constexpr
+auto
+make_coord_iterator(Shape const& shape)
+{
+  return make_coord_iterator<Order>(repeat_like(shape, int(0)), shape);
+}
+
+// A forward iterator for a coordinate that starts from zero and increments colex
+template <class Shape>
+CUTE_HOST_DEVICE constexpr
+auto
+make_coord_iterator(Shape const& shape)
+{
+  return make_coord_iterator(repeat_like(shape, int(0)), shape);
 }
 
 } // end namespace cute

@@ -86,7 +86,7 @@ threadblock. Typically this requires the 2nd Convolution uses 1x1 filter without
 
 # Copyright
 
-Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 
 ```
@@ -115,4 +115,3 @@ SPDX-License-Identifier: BSD-3-Clause
   OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
-

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -354,8 +354,16 @@ int main(int argc, char const **args) {
     std::cout
       << "This example requires a GPU of NVIDIA's Hopper Architecture or "
       << "later (compute capability 90 or greater) and CUDA 12.0 or greater.\n";
+      return 0;
+  }
+  
+  else if (__CUDACC_VER_MAJOR__ < 12 || props.major != 9 || props.minor != 0) {
+    std::cout
+      << "This example requires a GPU of NVIDIA's Hopper Architecture "
+      << "(compute capability 90) and CUDA 12.0 or greater.\n";
     return 0;
   }
+  
 
   //
   // Parse options
@@ -417,7 +425,7 @@ int main(int argc, char const **args) {
   // Pipeline Depth to be used i.e number of A, B buffers in shared memory
   constexpr int PipelineStages = 8;
 
-  // Let's choose a Warp-Specialized Mainloop implemention which uses TMA
+  // Let's choose a Warp-Specialized Mainloop implementation which uses TMA
   // Note : This requires / assumes the tensors to be 16B aligned
   using DispatchPolicy = cutlass::gemm::MainloopSm90TmaGmmaWarpSpecialized<PipelineStages, ClusterShape,
                            cutlass::gemm::KernelTmaWarpSpecialized>;

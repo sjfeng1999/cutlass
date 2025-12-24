@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,10 +30,9 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/util/type_traits.hpp>
-#include <cute/numeric/integral_constant.hpp>
+#include <cute/config.hpp>           // CUTE_HOST_DEVICE
+#include <cute/util/type_traits.hpp> // cute::is_valid
+#include <cute/numeric/numeric_types.hpp> 
 
 //
 // CUDA compatible print and printf
@@ -58,77 +57,134 @@ num_digits(int x)
                   10)))))))));
 }
 
-template <class T>
-struct format_and_size {
-  using type = T;
-  char const* format;
-  int digits;
-};
-
-CUTE_HOST_DEVICE
-format_and_size<int>
-get_format(bool) {
-  return {"%*d", 3};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<int32_t>
-get_format(int32_t) {
-  return {"%*d", 5};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<uint32_t>
-get_format(uint32_t) {
-  return {"%*d", 5};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<int64_t>
-get_format(int64_t) {
-  return {"%*d", 5};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<uint64_t>
-get_format(uint64_t) {
-  return {"%*d", 5};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<float>
-get_format(half_t) {
-  return {"%*.2f", 8};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<float>
-get_format(float) {
-  return {"%*.2e", 10};
-}
-
-CUTE_HOST_DEVICE
-format_and_size<double>
-get_format(double) {
-  return {"%*.3e", 11};
-}
-
 //
 // print dispatcher
 //
 
 CUTE_HOST_DEVICE
 void
-print(char const& c) {
+print(char c) {
   printf("%c", c);
 }
 
-template <class T,
-          __CUTE_REQUIRES(is_std_integral<T>::value)>
 CUTE_HOST_DEVICE
 void
-print(T const& a) {
+print(signed char a) {
+  printf("%d", static_cast<int>(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(unsigned char a) {
+  printf("%u", static_cast<unsigned int>(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(short a) {
+  printf("%hd", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(unsigned short a) {
+  printf("%hu", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(int a) {
+  printf("%d", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(uint1b_t a) {
   printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(int2b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(uint2b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(int4b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(uint4b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(int6b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(uint6b_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(bin1_t a) {
+  printf("%d", int(a));
+}
+
+CUTE_HOST_DEVICE
+void
+print(unsigned int a) {
+  printf("%u", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(long a) {
+  printf("%ld", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(unsigned long a) {
+  printf("%lu", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(long long a) {
+  printf("%lld", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(unsigned long long a) {
+  printf("%llu", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(float a) {
+  printf("%f", a);
+}
+
+CUTE_HOST_DEVICE
+void
+print(double a) {
+  printf("%f", a);
 }
 
 template <class... T>
@@ -138,17 +194,95 @@ print(char const* format, T const&... t) {
   printf(format, t...);
 }
 
-template <class... T>
-CUTE_HOST_DEVICE
-void
-print(T const&... t) {
-  (print(t), ...);
-}
-
 CUTE_HOST_DEVICE
 void
 print(char const* format) {
   printf("%s", format);
+}
+
+//
+// pretty printing
+//
+
+CUTE_HOST_DEVICE void
+pretty_print(uint1b_t a) {
+  printf("%*d", 3, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(int2b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(uint2b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(int4b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(uint4b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(int6b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(uint6b_t a) {
+  printf("%*d", 5, int(a));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(bool v) {
+  printf("%*d", 3, int(v));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(int32_t v) {
+  printf("%*d", 5, v);
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(uint32_t v) {
+  printf("%*d", 5, v);
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(int64_t v) {
+  printf("%*lld", 5, static_cast<long long>(v));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(uint64_t v) {
+  printf("%*llu", 5, static_cast<unsigned long long>(v));
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(float v) {
+  printf("%*.2e", 10, v);
+}
+
+CUTE_HOST_DEVICE void
+pretty_print(double v) {
+  printf("%*.3e", 11, v);
+}
+
+template <class T>
+CUTE_HOST_DEVICE void
+pretty_print(T t) {
+  constexpr auto has_print_exmy_base = cute::is_valid([](auto t) -> decltype(pretty_print_float_exmy_base(t)) {}, t);  
+  if constexpr (has_print_exmy_base) {   
+  pretty_print_float_exmy_base(t);       
+  } else {                               
+  printf("  "); print(t);
+  }                                      
 }
 
 } // end namespace cute

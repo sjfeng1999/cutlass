@@ -1,4 +1,4 @@
-# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,6 +46,9 @@ set(CUTLASS_TOOLS_PROFILER_SOURCES
   src/problem_space.cpp
   src/operation_profiler.cu
   src/gemm_operation_profiler.cu
+  src/grouped_gemm_operation_profiler.cu
+  src/block_scaled_gemm_operation_profiler.cu
+  src/blockwise_gemm_operation_profiler.cu
   src/rank_k_operation_profiler.cu
   src/rank_2k_operation_profiler.cu
   src/trmm_operation_profiler.cu
@@ -73,7 +76,7 @@ set_target_properties(cutlass_profiler PROPERTIES EXPORT_NAME profiler)
 target_include_directories(
   cutlass_profiler
   PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/src
+  ${CMAKE_CURRENT_LIST_DIR}/include
   )
 
 #
@@ -97,14 +100,21 @@ install(
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_GEMM   --operation=Gemm       --providers=cutlass --verification-providers=cublas,device      --junit-output=test_cutlass_profiler_gemm)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_CONV2D --operation=Conv2d     --providers=cutlass --verification-providers=cudnn,device       --junit-output=test_cutlass_profiler_conv2d)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_CONV3D --operation=Conv3d     --providers=cutlass --verification-providers=cudnn,device,host  --junit-output=test_cutlass_profiler_conv3d)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_SPGEMM --operation=SparseGemm --providers=cutlass --verification-providers=cublas,device,host --junit-output=test_cutlass_profiler_spgemm)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_RANK_K   --operation=RankK       --providers=cutlass --verification-providers=cublas        --junit-output=test_cutlass_profiler_rank_k)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_RANK_2K   --operation=Rank2K       --providers=cutlass --verification-providers=cublas        --junit-output=test_cutlass_profiler_rank_2k)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_TRMM   --operation=Trmm       --providers=cutlass --verification-providers=device,host        --junit-output=test_cutlass_profiler_trmm)
-set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_SYMM   --operation=Symm       --providers=cutlass --verification-providers=cublas,host        --junit-output=test_cutlass_profiler_symm)
+if (CUDA_VERSION VERSION_GREATER_EQUAL 12.3 AND CUDA_VERSION VERSION_LESS 12.4 AND (90a IN_LIST CUTLASS_NVCC_ARCHS_ENABLED OR (90 IN_LIST CUTLASS_NVCC_ARCHS_ENABLED)))
+  set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_GEMM   --operation=Gemm       --providers=cutlass --verification-providers=cublas,host      --junit-output=test_cutlass_profiler_gemm    --print-kernel-before-running=true)
+else()
+    set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_GEMM   --operation=Gemm       --providers=cutlass --verification-providers=cublas,device      --junit-output=test_cutlass_profiler_gemm    --print-kernel-before-running=true)
+    set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_GEMM   --operation=BlockScaledGemm --providers=cutlass --verification-providers=cublas,device      --junit-output=test_cutlass_profiler_gemm    --print-kernel-before-running=true)
+endif()
+
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_CONV2D --operation=Conv2d     --providers=cutlass --verification-providers=cudnn,device       --junit-output=test_cutlass_profiler_conv2d  --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_CONV3D --operation=Conv3d     --providers=cutlass --verification-providers=cudnn,device,host  --junit-output=test_cutlass_profiler_conv3d  --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_SPGEMM --operation=SparseGemm --providers=cutlass --verification-providers=cublas,device,host --junit-output=test_cutlass_profiler_spgemm  --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_RANK_K   --operation=RankK       --providers=cutlass --verification-providers=cublas        --junit-output=test_cutlass_profiler_rank_k    --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_RANK_2K   --operation=Rank2K       --providers=cutlass --verification-providers=cublas        --junit-output=test_cutlass_profiler_rank_2k --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_TRMM   --operation=Trmm       --providers=cutlass --verification-providers=device,host        --junit-output=test_cutlass_profiler_trmm    --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_SYMM   --operation=Symm       --providers=cutlass --verification-providers=cublas,host        --junit-output=test_cutlass_profiler_symm    --print-kernel-before-running=true)
+set(CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_GROUPED_GEMM --operation=GroupedGemm --providers=cutlass --verification-providers=device --junit-output=test_cutlass_profiler_grouped_gemm --print-kernel-before-running=true)
 
 cutlass_add_executable_tests(
   test_profiler cutlass_profiler
@@ -118,6 +128,7 @@ cutlass_add_executable_tests(
     RANK_2K
     TRMM
     SYMM
+    GROUPED_GEMM
   TEST_COMMAND_OPTIONS_PREFIX
     CUTLASS_PROFILER_TEST_COMMAND_OPTIONS_
   DISABLE_EXECUTABLE_INSTALL_RULE

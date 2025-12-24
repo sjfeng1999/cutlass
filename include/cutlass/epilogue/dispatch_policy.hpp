@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,10 +44,47 @@ namespace cutlass::epilogue {
 // Builder Epilogue Schedules
 //
 //////////////////////////////////////////////////////////////////////////////
-
+// Pre-Hopper schedules
+struct PtrArrayDefault {};
+struct EpilogueSimtVectorized {};
+struct EpiloguePtrArraySimtVectorized {};
+// Hopper direct store schedules
 struct NoSmemWarpSpecialized {};
+struct PtrArrayNoSmemWarpSpecialized {};
+struct PtrArrayNoSmemWarpSpecializedTransposed {};
+// Hopper TMA schedules
 struct TmaWarpSpecialized {};
 struct TmaWarpSpecializedCooperative {};
+struct PtrArrayTmaWarpSpecialized { static constexpr int NumEpilogueWarpGroups = 1; };
+struct PtrArrayTmaWarpSpecializedPingpong { static constexpr int NumEpilogueWarpGroups = 2; };
+struct PtrArrayTmaWarpSpecializedCooperative { static constexpr int NumEpilogueWarpGroups = 2; };
+// Blackwell direct store schedules
+struct NoSmemWarpSpecialized1Sm {};
+struct NoSmemWarpSpecialized2Sm {};
+struct FastF32NoSmemWarpSpecialized1Sm : NoSmemWarpSpecialized1Sm {};
+struct FastF32NoSmemWarpSpecialized2Sm : NoSmemWarpSpecialized2Sm {};
+struct BlockwiseNoSmemWarpSpecialized1Sm : NoSmemWarpSpecialized1Sm {};
+struct BlockwiseNoSmemWarpSpecialized2Sm : NoSmemWarpSpecialized2Sm {};
+struct PtrArrayNoSmemWarpSpecialized1Sm : NoSmemWarpSpecialized1Sm {};
+struct PtrArrayNoSmemWarpSpecialized2Sm : NoSmemWarpSpecialized2Sm {};
+struct PtrArrayFastF32NoSmemWarpSpecialized1Sm : PtrArrayNoSmemWarpSpecialized1Sm {};
+struct PtrArrayFastF32NoSmemWarpSpecialized2Sm : PtrArrayNoSmemWarpSpecialized2Sm {};
+struct PtrArrayBlockwiseNoSmemWarpSpecialized1Sm : PtrArrayNoSmemWarpSpecialized1Sm {};
+struct PtrArrayBlockwiseNoSmemWarpSpecialized2Sm : PtrArrayNoSmemWarpSpecialized2Sm {};
+// Blackwell TMA schedules 
+struct TmaWarpSpecialized1Sm {};
+struct TmaWarpSpecialized2Sm {};
+struct PtrArrayTmaWarpSpecialized1Sm : TmaWarpSpecialized1Sm {};
+struct PtrArrayTmaWarpSpecialized2Sm : TmaWarpSpecialized2Sm {};
+struct TmaWarpSpecialized1SmNvf4     final : TmaWarpSpecialized1Sm {};
+struct TmaWarpSpecialized2SmNvf4     final : TmaWarpSpecialized2Sm {};
+struct TmaWarpSpecialized1SmMxf4     final : TmaWarpSpecialized1Sm {};
+struct TmaWarpSpecialized2SmMxf4     final : TmaWarpSpecialized2Sm {};
+struct TmaWarpSpecialized1SmMxf8f6f4 final : TmaWarpSpecialized1Sm {};
+struct TmaWarpSpecialized2SmMxf8f6f4 final : TmaWarpSpecialized2Sm {};
+// Cooperative epilogue schedule for sm120 sparse kernels
+struct SparseTmaWarpSpecializedCooperativeSm120 : public TmaWarpSpecializedCooperative {};
+
 // DEPRECATED schedules, will be removed in next release
 struct TmaWarpSpecializedElementwiseBase : public TmaWarpSpecialized {};
 struct TmaWarpSpecializedCooperativeElementwiseBase : public TmaWarpSpecializedCooperative {};
@@ -131,15 +168,33 @@ template<
   int StagesC_,
   int StagesD_,
   int FragmentSize_,
-  bool ReuseSmemC_
+  bool ReuseSmemC_,
+  bool DelayTmaStore_
 >
 struct Sm90TmaWarpSpecialized {
   constexpr static int StagesC = StagesC_;
   constexpr static int StagesD = StagesD_;
   constexpr static int FragmentSize = FragmentSize_;
   constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
 };
 
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_,
+  int NumEpilogueWarpGroups_
+>
+struct Sm90PtrArrayTmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+  constexpr static int NumEpilogueWarpGroups = NumEpilogueWarpGroups_;
+};
 
 // DEPRECATED policies, will be removed in next release
 template<
@@ -151,6 +206,95 @@ struct Sm90TmaWarpSpecializedBiasElementwise {
   constexpr static int StagesC = StagesC_;
   constexpr static int StagesD = StagesD_;
   constexpr static int FragmentSize = FragmentSize_;
+};
+
+
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_
+>
+struct Sm100TmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+};
+
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_
+>
+struct Sm100PtrArrayTmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+
+  static_assert(StagesC >= 1, "StagesC must be >= 1");
+  static_assert(StagesD >= 1, "StagesD must be >= 1");
+};
+
+struct Sm100NoSmem {
+  constexpr static int StagesC = 1;
+  constexpr static int StagesD = 1;
+  constexpr static int FragmentSize = 1;
+};
+
+struct Sm100NoSmemWarpSpecialized {
+  constexpr static int StagesC = 1;
+  constexpr static int StagesD = 1;
+  constexpr static int FragmentSize = 1;
+};
+
+struct Sm100PtrArrayNoSmem {
+  constexpr static int StagesC = 1;
+  constexpr static int StagesD = 1;
+  constexpr static int FragmentSize = 1;
+};
+
+struct Sm100PtrArrayNoSmemWarpSpecialized {
+  constexpr static int StagesC = 1;
+  constexpr static int StagesD = 1;
+  constexpr static int FragmentSize = 1;
+};
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_
+>
+struct Sm120TmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+};
+
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_,
+  int NumEpilogueWarpGroups_
+>
+struct Sm120PtrArrayTmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+  constexpr static int NumEpilogueWarpGroups = NumEpilogueWarpGroups_;
 };
 
 //////////////////////////////////////////////////////////////////////////////

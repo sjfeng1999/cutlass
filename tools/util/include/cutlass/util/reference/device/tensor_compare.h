@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -109,7 +109,8 @@ bool BlockCompareEqual(
   Element const *ptr_B,
   size_t capacity,
   int grid_size = 0, 
-  int block_size = 0) {
+  int block_size = 0,
+  cudaStream_t stream = nullptr) {
 
   int equal_flag = 1;
   int *device_equal_flag = nullptr;
@@ -138,7 +139,6 @@ bool BlockCompareEqual(
     if (result != cudaSuccess) {
       throw std::runtime_error("Failed to query occupancy.");
     }
-
     // Limit block size. This has the effect of increasing the number of items processed by a
     // single thread and reduces the impact of initialization overhead.
     block_size = (block_size < 128 ? block_size : 128);
@@ -147,7 +147,9 @@ bool BlockCompareEqual(
   dim3 grid(grid_size, 1, 1);
   dim3 block(block_size, 1, 1);
 
-  kernel::BlockCompareEqual<Element><<< grid, block >>>(device_equal_flag, ptr_A, ptr_B, capacity);
+  kernel::BlockCompareEqual<Element><<< grid, block, 0, stream >>>(device_equal_flag, ptr_A, ptr_B, capacity);
+
+  cudaStreamSynchronize(stream);
 
   if (cudaMemcpy(
     &equal_flag, 
@@ -176,7 +178,8 @@ bool BlockCompareRelativelyEqual(
   Element epsilon,
   Element nonzero_floor,
   int grid_size = 0, 
-  int block_size = 0) {
+  int block_size = 0,
+  cudaStream_t stream = nullptr) {
 
   int equal_flag = 1;
   int *device_equal_flag = nullptr;
@@ -205,7 +208,6 @@ bool BlockCompareRelativelyEqual(
     if (result != cudaSuccess) {
       throw std::runtime_error("Failed to query occupancy.");
     }
-
     // Limit block size. This has the effect of increasing the number of items processed by a
     // single thread and reduces the impact of initialization overhead.
     block_size = (block_size < 128 ? block_size : 128);
@@ -214,7 +216,7 @@ bool BlockCompareRelativelyEqual(
   dim3 grid(grid_size, 1, 1);
   dim3 block(block_size, 1, 1);
 
-  kernel::BlockCompareRelativelyEqual<Element><<< grid, block >>>(
+  kernel::BlockCompareRelativelyEqual<Element><<< grid, block, 0, stream >>>(
     device_equal_flag, 
     ptr_A, 
     ptr_B, 
@@ -222,6 +224,8 @@ bool BlockCompareRelativelyEqual(
     epsilon, 
     nonzero_floor
   );
+
+  cudaStreamSynchronize(stream);
 
   if (cudaMemcpy(
     &equal_flag, 

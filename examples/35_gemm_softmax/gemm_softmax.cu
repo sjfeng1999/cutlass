@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,8 @@
 #include "cutlass/arch/memory.h"
 #include "cutlass/arch/memory_sm75.h"
 #include "cutlass/gemm/device/gemm_complex.h"
-
+#include "cutlass/numeric_types.h"
+#include "cutlass/numeric_size.h"
 #include "cutlass/util/command_line.h"
 #include "cutlass/util/host_tensor.h"
 
@@ -56,6 +57,7 @@
 #include "cutlass/util/reference/host/tensor_fill.h"
 #include "cutlass/util/reference/host/error_metrics.h"
 #include "cutlass/util/tensor_view_io.h"
+#include "cutlass/numeric_size.h" // cutlass::bits_to_bytes
 
 #include "cutlass/layout/matrix.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
@@ -456,7 +458,7 @@ struct Testbed {
   bool verify_tensor(std::vector<Element> vector_Input, \
                        std::vector<Element> vector_Input_Ref) {
 
-    int64_t size = (vector_Input.size() < vector_Input_Ref.size()) ? vector_Input.size() : vector_Input_Ref.size();
+    auto size = int64_t((vector_Input.size() < vector_Input_Ref.size()) ? vector_Input.size() : vector_Input_Ref.size());
     float abs_tol = options.tolerance;
     float rel_tol = options.tolerance;
     
@@ -657,7 +659,9 @@ struct Testbed {
     }
 
     int64_t flops = int64_t(options.problem_size.m()) * options.problem_size.n() * options.problem_size.k() * 2;
-    int64_t bytes = (sizeof(ElementD) * 2 + sizeof(ElementSoftmax)) * options.problem_size.m() * options.problem_size.n();
+    int64_t bytes = cutlass::bits_to_bytes<int64_t>(
+      (cutlass::sizeof_bits<ElementD>::value * 2 + cutlass::sizeof_bits<ElementSoftmax>::value) *
+      options.problem_size.m() * options.problem_size.n());
 
     double gflops_per_second = double(flops) * kIterations * options.batch_count / double(elapsed_ms / 1000.0f) / double(1.0e9);
     double gbytes_per_second = double(bytes) * kIterations * options.batch_count / double(elapsed_ms / 1000.0f) / double(1 << 30);

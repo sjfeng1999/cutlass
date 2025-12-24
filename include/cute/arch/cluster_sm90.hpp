@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,7 @@
 #pragma once
 
 #include <cute/config.hpp>
+#include <cute/numeric/numeric_types.hpp>
 
 // Config
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900) && \
@@ -49,7 +50,7 @@ CUTE_DEVICE void cluster_arrive_relaxed()
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   asm volatile("barrier.cluster.arrive.relaxed.aligned;\n" : : );
 #else
-  CUTE_RUNTIME_ASSERT("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
+  CUTE_INVALID_CONTROL_PATH("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
 #endif
 }
 
@@ -58,7 +59,7 @@ CUTE_DEVICE void cluster_arrive()
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   asm volatile("barrier.cluster.arrive.aligned;\n" : : );
 #else
-  CUTE_RUNTIME_ASSERT("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
+  CUTE_INVALID_CONTROL_PATH("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
 #endif
 }
 
@@ -67,7 +68,7 @@ CUTE_DEVICE void cluster_wait()
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   asm volatile("barrier.cluster.wait.aligned;\n" : : );
 #else
-  CUTE_RUNTIME_ASSERT("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
+  CUTE_INVALID_CONTROL_PATH("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
 #endif
 }
 
@@ -77,7 +78,7 @@ CUTE_DEVICE void cluster_sync()
   cluster_arrive();
   cluster_wait();
 #else
-  CUTE_RUNTIME_ASSERT("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
+  CUTE_INVALID_CONTROL_PATH("CUTE_ARCH_CLUSTER_SM90_ENABLED is not defined");
 #endif
 }
 
@@ -86,15 +87,16 @@ CUTE_DEVICE dim3 cluster_grid_dims()
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %nclusterid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %nclusterid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %nclusterid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %%nclusterid.x;\n" : "=r"(x) : );
+  asm volatile("mov.u32 %0, %%nclusterid.y;\n" : "=r"(y) : );
+  asm volatile("mov.u32 %0, %%nclusterid.z;\n" : "=r"(z) : );
   return {x, y, z};
 #elif defined(__CUDA_ARCH__)
   // MSVC requires protecting use of gridDim with __CUDA_ARCH__.
   return gridDim;
 #elif defined(_MSC_VER)
-  CUTE_RUNTIME_ASSERT("cluster_grid_dims() can only be called on device");
+  CUTE_INVALID_CONTROL_PATH("cluster_grid_dims() can only be called on device");
+  return {0, 0, 0};
 #else
   return {0, 0, 0};
 #endif
@@ -105,15 +107,16 @@ CUTE_DEVICE dim3 cluster_id_in_grid()
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %clusterid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %clusterid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %clusterid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %%clusterid.x;\n" : "=r"(x) : );
+  asm volatile("mov.u32 %0, %%clusterid.y;\n" : "=r"(y) : );
+  asm volatile("mov.u32 %0, %%clusterid.z;\n" : "=r"(z) : );
   return {x, y, z};
 #elif defined(__CUDA_ARCH__)
   // MSVC requires protecting use of blockIdx with __CUDA_ARCH__.
   return blockIdx;
 #elif defined(_MSC_VER)
-  CUTE_RUNTIME_ASSERT("cluster_id_in_grid() can only be called on device");
+  CUTE_INVALID_CONTROL_PATH("cluster_id_in_grid() can only be called on device");
+  return {0, 0, 0};
 #else
   return {0, 0, 0};
 #endif
@@ -124,9 +127,9 @@ CUTE_DEVICE dim3 block_id_in_cluster()
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %cluster_ctaid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %cluster_ctaid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %cluster_ctaid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %%cluster_ctaid.x;\n" : "=r"(x) : );
+  asm volatile("mov.u32 %0, %%cluster_ctaid.y;\n" : "=r"(y) : );
+  asm volatile("mov.u32 %0, %%cluster_ctaid.z;\n" : "=r"(z) : );
   return {x, y, z};
 #else
   return {0,0,0};
@@ -138,9 +141,9 @@ CUTE_DEVICE dim3 cluster_shape()
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %cluster_nctaid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %cluster_nctaid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %cluster_nctaid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %%cluster_nctaid.x;\n" : "=r"(x) : );
+  asm volatile("mov.u32 %0, %%cluster_nctaid.y;\n" : "=r"(y) : );
+  asm volatile("mov.u32 %0, %%cluster_nctaid.z;\n" : "=r"(z) : );
   return {x, y, z};
 #else
   return {1,1,1};
@@ -148,11 +151,11 @@ CUTE_DEVICE dim3 cluster_shape()
 }
 
 // Get 1D ctaid in a cluster.
-CUTLASS_DEVICE uint32_t block_rank_in_cluster()
+CUTE_DEVICE uint32_t block_rank_in_cluster()
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t rank;
-  asm volatile("mov.u32 %0, %cluster_ctarank;\n" : "=r"(rank) :);
+  asm volatile("mov.u32 %0, %%cluster_ctarank;\n" : "=r"(rank) :);
   return rank;
 #else
   return 0;
@@ -160,7 +163,7 @@ CUTLASS_DEVICE uint32_t block_rank_in_cluster()
 }
 
 // Set the destination block-ID in cluster for a given SMEM Address
-CUTLASS_DEVICE uint32_t set_block_rank(uint32_t smemAddr, uint32_t rank)
+CUTE_DEVICE uint32_t set_block_rank(uint32_t smemAddr, uint32_t rank)
 {
 #if defined(CUTE_ARCH_CLUSTER_SM90_ENABLED)
   uint32_t result;
@@ -181,11 +184,11 @@ CUTE_HOST_DEVICE uint32_t elect_one_sync()
   uint32_t laneid = 0;
   asm volatile(
     "{\n"
-    ".reg .b32 %rx;\n"
-    ".reg .pred %px;\n"
-    "     elect.sync %rx|%px, %2;\n"
-    "@%px mov.s32 %1, 1;\n"
-    "     mov.s32 %0, %rx;\n"
+    ".reg .b32 %%rx;\n"
+    ".reg .pred %%px;\n"
+    "     elect.sync %%rx|%%px, %2;\n"
+    "@%%px mov.s32 %1, 1;\n"
+    "     mov.s32 %0, %%rx;\n"
     "}\n"
     : "+r"(laneid), "+r"(pred)
     : "r"(0xFFFFFFFF));
@@ -211,11 +214,11 @@ elect_one_leader_sync()
   uint32_t laneid = 0;
   asm volatile(
     "{\n"
-    ".reg .b32 %rx;\n"
-    ".reg .pred %px;\n"
-    "     elect.sync %rx|%px, %2;\n"
-    "@%px mov.s32 %1, 1;\n"
-    "     mov.s32 %0, %rx;\n"
+    ".reg .b32 %%rx;\n"
+    ".reg .pred %%px;\n"
+    "     elect.sync %%rx|%%px, %2;\n"
+    "@%%px mov.s32 %1, 1;\n"
+    "     mov.s32 %0, %%rx;\n"
     "}\n"
     : "+r"(laneid), "+r"(pred)
     : "r"(0xFFFFFFFF));

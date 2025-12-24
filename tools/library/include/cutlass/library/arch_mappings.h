@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -97,6 +97,11 @@ template <typename OperatorClass> struct ArchMap<arch::Sm86, OperatorClass> {
   static int const kMax = 1024;
 };
 
+template <typename OperatorClass> struct ArchMap<arch::Sm89, OperatorClass> {
+  static int const kMin = 89;
+  static int const kMax = 100;
+};
+
 template <typename OperatorClass> struct ArchMap<arch::Sm90, OperatorClass> {
   static int const kMin = 90;
   static int const kMax = 1024;
@@ -106,6 +111,41 @@ template <typename OperatorClass> struct ArchMap<arch::Sm90, OperatorClass> {
 template <> struct ArchMap<arch::Sm90, arch::OpClassTensorOp> {
   static int const kMin = 90;
   static int const kMax = 90;
+};
+
+// Arch conditional sparse WGMMA
+template <> struct ArchMap<arch::Sm90, arch::OpClassSparseTensorOp> {
+  static int const kMin = 90;
+  static int const kMax = 90;
+};
+
+
+template <typename OperatorClass> struct ArchMap<arch::Sm100, OperatorClass> {
+  static int const kMin = 100;
+  static int const kMax = 1024;
+};
+
+template <> struct ArchMap<arch::Sm100, arch::OpClassTensorOp> {
+  static int const kMin = 100;
+  #if (__CUDACC_VER_MAJOR__ >= 13)
+    static int const kMax = 110;
+  #else
+      static int const kMax = 103;
+  #endif // __CUDACC_VER_MAJOR__ >= 13
+};
+
+template <typename OperatorClass> struct ArchMap<arch::Sm103, OperatorClass> {
+  static int const kMin = 103;
+  static int const kMax = 1024;
+};
+template <> struct ArchMap<arch::Sm103, arch::OpClassTensorOp> {
+  static int const kMin = 103;
+  static int const kMax = 103;
+};
+
+template <typename OperatorClass> struct ArchMap<arch::Sm120, OperatorClass> {
+  static int const kMin = 120;
+  static int const kMax = 121;
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////

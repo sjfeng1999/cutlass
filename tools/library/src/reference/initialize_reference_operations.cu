@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -46,16 +46,35 @@ namespace library {
 void initialize_gemm_reference_operations_int4(Manifest &manifest);
 void initialize_gemm_reference_operations_int8_interleaved_32(Manifest &manifest);
 void initialize_gemm_reference_operations_int8_interleaved_64(Manifest &manifest);
-void initialize_gemm_reference_operations_int8_canonical(Manifest &manifest);
+void initialize_gemm_reference_operations_s8_s8_s32(Manifest &manifest);
+void initialize_gemm_reference_operations_u8_u8_s32(Manifest &manifest);
 void initialize_gemm_reference_operations_e4m3a_e4m3out(Manifest &manifest);
 void initialize_gemm_reference_operations_e5m2a_e4m3out(Manifest &manifest);
 void initialize_gemm_reference_operations_e4m3a_e5m2out(Manifest &manifest);
 void initialize_gemm_reference_operations_e5m2a_e5m2out(Manifest &manifest);
+
+void initialize_gemm_reference_operations_f4_f4_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f4_f6_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f4_f8_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f6_f4_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f6_f6_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f6_f8_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f8_f4_f32(Manifest &manifest);
+void initialize_gemm_reference_operations_f8_f6_f32(Manifest &manifest);
+void initialize_block_scaled_gemm_reference_operations_fp4a_vs16(Manifest &manifest);
+void initialize_block_scaled_gemm_reference_operations_fp4a_vs32(Manifest &manifest);
+void initialize_block_scaled_gemm_reference_operations_mixed8bitsa(Manifest &manifest);
+void initialize_blockwise_gemm_reference_operations_fp32out(Manifest &manifest);
+void initialize_blockwise_gemm_reference_operations_fp16out(Manifest &manifest);
+void initialize_blockwise_gemm_reference_operations_bf16out(Manifest &manifest);
+
 void initialize_gemm_reference_operations_fp8in_fp16out(Manifest &manifest);
 void initialize_gemm_reference_operations_fp8in_bf16out(Manifest &manifest);
 void initialize_gemm_reference_operations_fp8in_fp32out(Manifest &manifest);
 void initialize_gemm_reference_operations_fp32out(Manifest &manifest);
 void initialize_gemm_reference_operations_fp_other(Manifest &manifest);
+void initialize_gemm_reference_operations_fp_mixed_input(Manifest &manifest);
+void initialize_gemm_reference_operations_int_mixed_input(Manifest &manifest);
 
 void initialize_conv2d_reference_operations(Manifest &manifest);
 void initialize_conv3d_reference_operations(Manifest &manifest);
@@ -70,7 +89,8 @@ void initialize_reference_operations(Manifest &manifest) {
 
   initialize_gemm_reference_operations_int8_interleaved_32(manifest);
   initialize_gemm_reference_operations_int8_interleaved_64(manifest);
-  initialize_gemm_reference_operations_int8_canonical(manifest);
+  initialize_gemm_reference_operations_s8_s8_s32(manifest);
+  initialize_gemm_reference_operations_u8_u8_s32(manifest);
 
   initialize_gemm_reference_operations_e4m3a_e4m3out(manifest);
   initialize_gemm_reference_operations_e5m2a_e4m3out(manifest);
@@ -82,6 +102,24 @@ void initialize_reference_operations(Manifest &manifest) {
 
   initialize_gemm_reference_operations_fp32out(manifest);
   initialize_gemm_reference_operations_fp_other(manifest);
+  initialize_gemm_reference_operations_fp_mixed_input(manifest);
+  initialize_gemm_reference_operations_int_mixed_input(manifest);
+
+  
+  initialize_gemm_reference_operations_f4_f4_f32(manifest);
+  initialize_gemm_reference_operations_f4_f6_f32(manifest);
+  initialize_gemm_reference_operations_f4_f8_f32(manifest);
+  initialize_gemm_reference_operations_f6_f4_f32(manifest);
+  initialize_gemm_reference_operations_f6_f6_f32(manifest);
+  initialize_gemm_reference_operations_f6_f8_f32(manifest);
+  initialize_gemm_reference_operations_f8_f4_f32(manifest);
+  initialize_gemm_reference_operations_f8_f6_f32(manifest);
+  initialize_block_scaled_gemm_reference_operations_fp4a_vs16(manifest);
+  initialize_block_scaled_gemm_reference_operations_fp4a_vs32(manifest);
+  initialize_block_scaled_gemm_reference_operations_mixed8bitsa(manifest);
+  initialize_blockwise_gemm_reference_operations_fp32out(manifest);
+  initialize_blockwise_gemm_reference_operations_fp16out(manifest);
+  initialize_blockwise_gemm_reference_operations_bf16out(manifest);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

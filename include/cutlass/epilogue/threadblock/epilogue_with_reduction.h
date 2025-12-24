@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,14 +38,10 @@
 */
 
 #pragma once
-
-#if defined(__CUDACC_RTC__)
-#include <cuda/std/cassert>
-#else
-#include <assert.h>
-#endif
-
 #include "cutlass/cutlass.h"
+#include CUDA_STD_HEADER(cassert)
+
+
 #include "cutlass/array.h"
 #include "cutlass/numeric_types.h"
 #include "cutlass/numeric_conversion.h"

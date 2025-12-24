@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,7 @@
     Layout functions must implement all members in the public interface of IdentityTensorLayout<>
     defined in cutlass/tensor_ref.h.
 */
+
 #pragma once
 
 #include "cutlass/cutlass.h"
@@ -538,6 +539,7 @@ public:
   /// Inverse of layout function, mapping linear offset to logical coordinate
   CUTLASS_HOST_DEVICE
   MatrixCoord inverse(LongIndex offset) const {
+    CUTLASS_UNUSED(offset);
     return MatrixCoord(0, 0);
   }
 
@@ -796,6 +798,7 @@ public:
   /// Inverse of layout function, mapping linear offset to logical coordinate
   CUTLASS_HOST_DEVICE
   MatrixCoord inverse(LongIndex offset) const {
+    CUTLASS_UNUSED(offset);
     return MatrixCoord(0, 0);
   }
 
@@ -901,6 +904,7 @@ public:
   /// Inverse of layout function, mapping linear offset to logical coordinate
   CUTLASS_HOST_DEVICE
   MatrixCoord inverse(LongIndex offset) const {
+    CUTLASS_UNUSED(offset);
     return MatrixCoord(0, 0);
   }
 

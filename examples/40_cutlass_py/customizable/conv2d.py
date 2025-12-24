@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,18 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 ################################################################################
+
+import sys
+print("This example is deprecated. Please see examples/python for examples of using "
+      "the CUTLASS Python interface.")
+sys.exit(0)
+
 import numpy as np
 import cutlass.backend as pycutlass
 from cutlass.backend import *
 from cutlass.backend.utils.device import device_cc
 from cutlass.backend.conv2d_operation import *
 from cutlass.backend.utils.reference_model import Conv2dReferenceModule
-import sys
 import torch.nn.functional as F
 
 import argparse
@@ -82,7 +87,7 @@ parser.add_argument('-la', "--layout_a", default="TensorNHWC", type=str, choices
                     "TensorNHWC", "TensorNC32HW32"], 
                     help="Memory layout of input tensor A")
 parser.add_argument('-aa', '--alignment_a', default=1,
-                    type=int, help="Memory alignement of input tensor A")
+                    type=int, help="Memory alignment of input tensor A")
 # B
 parser.add_argument('-lb', "--layout_b", default="TensorNHWC", type=str, choices=[
                     "TensorNHWC", "TensorC32RSK32"], 

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,20 +68,28 @@ struct OpMultiplyAddFastF16 {};
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Tag indicating the input is converted to 2 (big and small) TF32 components
-//  Perform 3xTF32 or 4xTF32 for every F32 output element
+/// Tag indicating the input data types are mixed and the narrower type is 
+/// upcasted to the wider type
+struct OpMultiplyAddMixedInputUpcast {};
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+/// Tag indicating the input is converted to 2 (big and small) TF32 or FP16 components
+//  Perform 3xTF32 or 4xTF32 for every F32 output element on Ampere
+//  Perform 3xFP16 or 4xFP16 for every F32 output element on Hopper with axiswise quantization factor support
 struct OpMultiplyAddFastF32 {};
 
-/// Tag indicating the input is converted to 2 (big and small) TF32 components
-//  Perform 3xTF32 or 4xTF32 for every complex<F32> output element
+/////////////////////////////////////////////////////////////////////////////////////////////////
+/// Tag indicating the input is converted to 2 (big and small) TF32 or FP16 components
+//  Perform 3xTF32 or 4xTF32 for every complex<F32> output element on Ampere
+//  Perform 3xFP16 or 4xFP16 for every complex<F32> output element on Hopper with axiswise quantization factor support
 struct OpMultiplyAddComplexFastF32 {};
 
-/// Helper for determining whether staged accumulation should be used for a given operator
-template <typename Operator>
-struct UseStagedAccumulation {
-  static bool const value = platform::is_same<Operator, OpMultiplyAddFastF32>::value ||
-                            platform::is_same<Operator, OpMultiplyAddComplexFastF32>::value;
-};
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Tag indicating that staged accumulation is not to be used. This is valid only for SM89
+/// FP8 kernels.
+struct OpMultiplyAddFastAccum;
+
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Tag indicating the complex multiply-add operation
@@ -118,8 +126,15 @@ struct OpClassWmmaTensorOp {};
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Tag classifing operators as Tensor Core with structure sparse operations.
+/// Tag classifying operators as Tensor Core with structure sparse operations.
 struct OpClassSparseTensorOp {};
+
+
+/// Tag classifying operators as Tensor Core with blockScaled
+struct OpClassBlockScaledTensorOp {};
+
+/// Tag classifying operators as Tensor Core with blockScaled structured sparse operations.
+struct OpClassBlockScaledSparseTensorOp {};
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -239,5 +254,23 @@ struct SparseMma;
 #include "cutlass/arch/mma_sm75.h"
 #include "cutlass/arch/mma_sm80.h"
 #include "cutlass/arch/mma_sparse_sm80.h"
+#include "cutlass/arch/mma_sm89.h"
+#include "cutlass/arch/mma_sparse_sm89.h"
 #include "cutlass/arch/mma_sm90.h"
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace cutlass {
+namespace arch {
+namespace detail {
+/// Helper for determining whether staged accumulation should be used for a given operator
+template <typename Operator>
+struct UseStagedAccumulation {
+  static bool const value = platform::is_same<typename Operator::MathOperator, OpMultiplyAddFastF32>::value ||
+                            platform::is_same<typename Operator::MathOperator, OpMultiplyAddComplexFastF32>::value ||
+                            is_sm89_staged_policy_v<Operator>;
+};
+} // namespace detail
+} // namespace arch
+} // namespace cutlass
+
 /////////////////////////////////////////////////////////////////////////////////////////////////

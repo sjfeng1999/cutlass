@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -70,10 +70,10 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
 
-  using EpilogueDescriptor = cutlass::epilogue::collective::EpilogueDescriptor<
+  using EpilogueDescriptor = cutlass::epilogue::collective::detail::EpilogueDescriptor<
     TileShape_MNK, EpilogueTileType, cutlass::half_t, cutlass::half_t, EpilogueSchedule
   >; 
-  using AuxLoadDescriptor = cutlass::epilogue::collective::AuxLoadDescriptor<
+  using AuxLoadDescriptor = cutlass::epilogue::collective::detail::AuxLoadDescriptor<
     EpilogueDescriptor, cutlass::layout::RowMajor, cutlass::half_t
   >;
 
@@ -98,7 +98,61 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
       cutlass::half_t, LayoutB, 8,
       float,
       TileShape_MNK, ClusterShape_MNK,
-      cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
+      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
+      cutlass::gemm::KernelTmaWarpSpecializedCooperative
+    >::CollectiveOp;
+
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      Shape<int,int,int,int>,
+      CollectiveMainloop,
+      CollectiveEpilogue
+  >;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+  // Host reference
+  using HostReference = test::gemm::device::HostEVTAuxLoad<
+    Gemm, cutlass::half_t, cutlass::layout::RowMajor
+  >;
+  bool passed = test::gemm::device::TestAllEVT<Gemm, HostReference>();
+  EXPECT_TRUE(passed);
+}
+
+TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 256x128x64_2x2x1_AuxLoadNoSmemF16_RowMajor) {
+  using LayoutA = cutlass::layout::RowMajor;
+  using LayoutB = cutlass::layout::ColumnMajor;
+  using LayoutC = cutlass::layout::RowMajor;
+  using TileShape_MNK = Shape<_256,_128,_64>;
+  using ClusterShape_MNK = Shape<_2,_2,_1>;
+
+  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
+  using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
+
+  using EpilogueDescriptor = cutlass::epilogue::collective::detail::EpilogueDescriptor<
+    TileShape_MNK, EpilogueTileType, cutlass::half_t, cutlass::half_t, EpilogueSchedule
+  >; 
+
+  using FusionCallbacks = cutlass::epilogue::fusion::Sm90LinCombAuxLoadNoSmem<
+    EpilogueDescriptor, cutlass::half_t, cutlass::layout::RowMajor, cutlass::half_t, float, float>;
+
+  using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
+      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+      TileShape_MNK, ClusterShape_MNK,
+      EpilogueTileType,
+      float, float,
+      cutlass::half_t, LayoutC, 8,
+      cutlass::half_t, LayoutC, 8,
+      EpilogueSchedule,
+      FusionCallbacks
+    >::CollectiveOp;
+
+  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
+      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+      cutlass::half_t, LayoutA, 8,
+      cutlass::half_t, LayoutB, 8,
+      float,
+      TileShape_MNK, ClusterShape_MNK,
+      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
       cutlass::gemm::KernelTmaWarpSpecializedCooperative
     >::CollectiveOp;
 
@@ -128,10 +182,10 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
 
-  using EpilogueDescriptor = cutlass::epilogue::collective::EpilogueDescriptor<
+  using EpilogueDescriptor = cutlass::epilogue::collective::detail::EpilogueDescriptor<
     TileShape_MNK, EpilogueTileType, cutlass::half_t, cutlass::half_t, EpilogueSchedule
   >; 
-  using AuxLoadDescriptor = cutlass::epilogue::collective::AuxLoadDescriptor<
+  using AuxLoadDescriptor = cutlass::epilogue::collective::detail::AuxLoadDescriptor<
     EpilogueDescriptor, cutlass::layout::ColumnMajor, cutlass::half_t
   >;
 
@@ -155,7 +209,7 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 25
       cutlass::half_t, LayoutB, 8,
       float,
       TileShape_MNK, ClusterShape_MNK,
-      cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
+      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
       cutlass::gemm::KernelTmaWarpSpecializedCooperative
     >::CollectiveOp;
 
@@ -185,10 +239,10 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 12
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
 
-  using EpilogueDescriptor = cutlass::epilogue::collective::EpilogueDescriptor<
+  using EpilogueDescriptor = cutlass::epilogue::collective::detail::EpilogueDescriptor<
     TileShape_MNK, EpilogueTileType, cutlass::half_t, cutlass::half_t, EpilogueSchedule
   >; 
-  using AuxLoadDescriptor = cutlass::epilogue::collective::AuxLoadDescriptor<
+  using AuxLoadDescriptor = cutlass::epilogue::collective::detail::AuxLoadDescriptor<
     EpilogueDescriptor, cutlass::layout::ColumnMajor, float
   >;
 
@@ -212,7 +266,7 @@ TEST(SM90_Device_Gemm_f16t_f16n_f32t_tensor_op_gmma_f32_cooperative_epilogue, 12
       cutlass::half_t, LayoutB, 8,
       float,
       TileShape_MNK, ClusterShape_MNK,
-      cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
+      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
       cutlass::gemm::KernelTmaWarpSpecializedCooperative
     >::CollectiveOp;
 

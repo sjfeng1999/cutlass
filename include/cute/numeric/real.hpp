@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,24 @@
 
 namespace cute
 {
+
+/// Generic add
+template <class C, class A, class B>
+CUTE_HOST_DEVICE constexpr
+void
+add(C& c, A const& a, B const& b)
+{
+  c = a + b;
+}
+
+/// Generic multiply
+template <class C, class A, class B>
+CUTE_HOST_DEVICE constexpr
+void
+mul(C& c, A const& a, B const& b)
+{
+  c = a * b;
+}
 
 /// Generic fused multiply-add
 template <class D, class A, class B, class C>

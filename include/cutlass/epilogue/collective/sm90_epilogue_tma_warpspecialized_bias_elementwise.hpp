@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,11 +61,13 @@ template <
   class CopyOpS2R_,
   class CopyOpS2G_,
   class SmemLayoutAtomD_,
-  class CopyOpR2S_
+  class CopyOpR2S_,
+  class CopyAtomC_,
+  class CopyOpR2R_
 >
 class Sm90EpilogueTmaWarpSpecializedBiasElementwise
   : public CollectiveEpilogue<
-      Sm90TmaWarpSpecialized<StagesC_, StagesD_, FragmentSize_, false>,
+      Sm90TmaWarpSpecialized<StagesC_, StagesD_, FragmentSize_, false, false>,
       BlockTileShape_,
       EpilogueTileShape_,
       ElementC_,
@@ -78,12 +80,14 @@ class Sm90EpilogueTmaWarpSpecializedBiasElementwise
       CopyOpS2R_,
       CopyOpS2G_,
       SmemLayoutAtomD_,
-      CopyOpR2S_
+      CopyOpR2S_,
+      CopyAtomC_,
+      CopyOpR2R_
 > {
 private:
   using Impl =
     CollectiveEpilogue<
-      Sm90TmaWarpSpecialized<StagesC_, StagesD_, FragmentSize_, false>,
+      Sm90TmaWarpSpecialized<StagesC_, StagesD_, FragmentSize_, false, false>,
       BlockTileShape_,
       EpilogueTileShape_,
       ElementC_,
@@ -96,7 +100,9 @@ private:
       CopyOpS2R_,
       CopyOpS2G_,
       SmemLayoutAtomD_,
-      CopyOpR2S_
+      CopyOpR2S_,
+      CopyAtomC_,
+      CopyOpR2R_
     >;
 public:
   using DispatchPolicy = Sm90TmaWarpSpecializedBiasElementwise<StagesC_, StagesD_, FragmentSize_>;
@@ -111,17 +117,17 @@ public:
   struct [[deprecated("use Sm90TmaWarpSpecialized Arguments instead")]]
   Arguments {
     struct ThreadArgs {
-      ElementCompute alpha;
-      ElementCompute beta;
-      ElementCompute const *alpha_ptr;
-      ElementCompute const *beta_ptr;
+      ElementCompute alpha{1};
+      ElementCompute beta{0};
+      ElementCompute const *alpha_ptr{nullptr};
+      ElementCompute const *beta_ptr{nullptr};
     } thread;
-    ElementC_ const* ptr_C;
-    StrideC_ dC;
-    ElementD_* ptr_D;
-    StrideD_ dD;
-    ElementBias const* ptr_Bias = nullptr;
-    ElementT* ptr_T = nullptr;
+    ElementC_ const* ptr_C{nullptr};
+    StrideC_ dC{};
+    ElementD_* ptr_D{nullptr};
+    StrideD_ dD{};
+    ElementBias const* ptr_Bias{nullptr};
+    ElementT* ptr_T{nullptr};
 
     CUTLASS_HOST_DEVICE
     operator typename Impl::Arguments() const {

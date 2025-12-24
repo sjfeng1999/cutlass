@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,14 +31,9 @@
 
 #pragma once
 
-#include <cute/config.hpp>
+#include <cute/arch/config.hpp>
 
 #include <cute/arch/mma.hpp>
-
-// Config
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900) && defined(__CUDA_ARCH_FEAT_SM90_ALL))
-#    define CUTE_ARCH_MMA_SM90A_ENABLED
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -48,8 +43,7 @@ namespace cute {
 // GMMA Descriptor and utilities
 
 // GMMA enums and utilities
-namespace GMMA
-{
+namespace SM90::GMMA {
 
 enum class LayoutType : uint8_t {
   INTERLEAVE = 0,
@@ -81,27 +75,26 @@ CUTE_HOST std::ostream& operator<<(std::ostream& os, LayoutType const& t) {
 }
 #endif // !defined(__CUDACC_RTC__)
 
-} // end namespace GMMA
+} // end namespace SM90::GMMA
 
 union GmmaDescriptor
 {
-
-  CUTE_HOST_DEVICE constexpr 
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor() noexcept : desc_(0) {}
-  CUTE_HOST_DEVICE constexpr 
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor(uint64_t desc) noexcept : desc_(desc) {}
-  CUTE_HOST_DEVICE constexpr 
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor(GmmaDescriptor const& t) noexcept : desc_(t.desc_) {}
-  CUTE_HOST_DEVICE constexpr 
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor(GmmaDescriptor && t) noexcept : desc_(t.desc_) {}
-  
-  CUTE_HOST_DEVICE constexpr 
+
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor& operator=(GmmaDescriptor const& t) noexcept {
     desc_ = t.desc_;
     return *this;
   }
 
-  CUTE_HOST_DEVICE constexpr 
+  CUTE_HOST_DEVICE constexpr
   GmmaDescriptor& operator=(GmmaDescriptor && t) noexcept {
     desc_ = t.desc_;
     return *this;
@@ -135,20 +128,21 @@ union GmmaDescriptor
   // Decay to a uint64_t
   CUTE_HOST_DEVICE constexpr
   operator uint64_t() const noexcept { return desc_; }
-
-  // Printer
-  CUTE_HOST_DEVICE friend void print(GmmaDescriptor const& t)
-  {
-    #if !defined(__CUDACC_RTC__)
-    printf("GmmaDescriptor: 0x%016llx\n",   static_cast<unsigned long long>(t.desc_));
-    printf("  start_addr :  0x%04x\n",      t.bitfield.start_address_);
-    printf("  leading_off:  0x%04x (%d)\n", t.bitfield.leading_byte_offset_, t.bitfield.leading_byte_offset_);
-    printf("  stride_off :  0x%04x (%d)\n", t.bitfield.stride_byte_offset_, t.bitfield.stride_byte_offset_);
-    printf("  base_offset:  0x%01x\n",      t.bitfield.base_offset_);
-    printf("  layout_type:  0x%01x (%s)\n", t.bitfield.layout_type_, to_string(static_cast<GMMA::LayoutType>(t.bitfield.layout_type_)));
-    #endif
-  }
 };
+
+// Printer
+CUTE_HOST_DEVICE void
+print(GmmaDescriptor const& t)
+{
+#if !defined(__CUDACC_RTC__)
+  printf("GmmaDescriptor: 0x%016llx\n",   static_cast<unsigned long long>(t.desc_));
+  printf("  start_addr :  0x%04x\n",      t.bitfield.start_address_);
+  printf("  leading_off:  0x%04x (%d)\n", t.bitfield.leading_byte_offset_, t.bitfield.leading_byte_offset_);
+  printf("  stride_off :  0x%04x (%d)\n", t.bitfield.stride_byte_offset_, t.bitfield.stride_byte_offset_);
+  printf("  base_offset:  0x%01x\n",      t.bitfield.base_offset_);
+  printf("  layout_type:  0x%01x (%s)\n", t.bitfield.layout_type_, to_string(static_cast<SM90::GMMA::LayoutType>(t.bitfield.layout_type_)));
+#endif // !defined(__CUDACC_RTC__)
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

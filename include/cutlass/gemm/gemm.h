@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,39 +37,21 @@
 #include "cutlass/coord.h"
 #include "cutlass/gemm_coord.h"
 #include "cutlass/layout/matrix.h"
+#include "cutlass/gemm/gemm_enumerated_types.h"
 #include "cute/layout.hpp"
 #include "cutlass/detail/layout.hpp"
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace cutlass {
 namespace gemm {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// GEMM operand enumeration: D = A * B + C
-enum class Operand {
-  kA, /// A multiplicand
-  kB, /// B multiplicand
-  kC, /// Source accumulator
-  kD  /// Destination accumulator
-};
-
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-enum class GemmUniversalMode {
-  kGemm,
-  kGemmSplitKParallel,
-  kBatched,
-  kArray,
-  kInvalid
-};
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Some options for clearing shared memory
-enum class SharedMemoryClearOption {
-  kNone,            ///< SMEM is in don't-care state
-  kZfill,           ///< Kernels fill out of bounds accesses with zeros
-  kClearLastStage   ///< Last SMEM stage is explicitly cleared. Mainloop uses 'kNone'
+/// Scaling kind
+enum class ScalingKind {
+  kTensorwise,   // Accumulated GEMM result is scaled per tensor (default alpha scaling)
+  kBlockwise     // Accumulated GEMM result is scaled per CTA tile (blockwise)
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -95,7 +77,7 @@ using cutlass::detail::StrideToLayoutTagC_t;
 template<int ModeIndex, class Stride>
 constexpr bool
 is_major(Stride = {}) {
-  return ::cutlass::detail::is_major<ModeIndex, Stride>();
+  return ::cutlass::detail::is_major<ModeIndex>(Stride{});
 }
 
 template<class Stride>

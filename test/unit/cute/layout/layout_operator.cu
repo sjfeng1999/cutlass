@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,6 +41,9 @@
 // Cute includes
 #include <cute/layout.hpp>
 #include <cute/int_tuple.hpp>
+#include <cute/swizzle.hpp>
+#include <cute/layout_composed.hpp>
+#include <cute/swizzle_layout.hpp>
 
 using namespace cutlass;
 using namespace cute;

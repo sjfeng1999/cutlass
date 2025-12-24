@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  **************************************************************************************************/
 
 // This example fuses gather before GEMM and scatter after GEMM into the same
-// GEMM kernel.  Gather and scatter operation is controled by an index vector
+// GEMM kernel.  Gather and scatter operation is controlled by an index vector
 // to select rows or columns from A, B, C or D matrices.
 //
 // Suppose, all matrices are column major.  The pseudo code of the fused kernel
@@ -59,11 +59,11 @@
 // Also, we don't check the index value is legal and index array point is valid
 // for the sake of the performance.
  
-#include <stdlib.h>
-#include <stdio.h>
-#include <time.h>
-#include <math.h>
-#include <assert.h>
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
+#include <cmath>
+#include <cassert>
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -173,8 +173,8 @@ struct Options {
   /// Compute performance in GFLOP/s
   double gflops(double runtime_s) const {
 
-    // Number of real-valued multiply-adds 
-    int64_t fmas = problem_size.product();
+    // Number of real-valued multiply-adds
+    int64_t fmas = problem_size.m() * int64_t(index_size) * problem_size.k();
     
     // Two flops per multiply-add
     return 2.0 * double(fmas) / double(1.0e9) / runtime_s;
@@ -215,7 +215,7 @@ using ShapeMMAOp = cutlass::gemm::GemmShape<16, 8, 16>;  // <- MMA Op tile M = 8
 // 16, 8, 16 -> Ampere
 
 // This code section describes how threadblocks are scheduled on GPU
-using SwizzleThreadBlock = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>;  // <- ??
+using SwizzleThreadBlock = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>;
 
 // Define the epilogue operation as LinearCombination. This is approximately equal to
 //
@@ -349,7 +349,7 @@ int run(Options &options) {
       tensor_c.device_data(),             // <- reference to matrix C on device
       tensor_d_scattered.device_data(),   // <- reference to matrix D on device
       tensor_a.layout().capacity(problem_size.mk()),
-      tensor_b.layout().capacity(cutlass::make_Coord(options.index_size, problem_size.n())),
+      tensor_b.layout().capacity(cutlass::make_Coord(options.index_size, problem_size.k())),
       tensor_c.layout().capacity(problem_size.mn()),
       tensor_d_scattered.layout().capacity(problem_size.mn()),
       tensor_a.layout().stride(),

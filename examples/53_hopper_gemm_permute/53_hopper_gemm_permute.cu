@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,7 +65,7 @@
     The approach relies on two things:
     - The ability of CUTLASS 3 to naturally perform general tensor contractions (GETT) owing to the
     flexibility of CuTe's hierarchical layouts (see example 51_hopper_gett for more details).
-    - The harware capabilities of Hopper TMA units that allow for loading multidimensional tensors with
+    - The hardware capabilities of Hopper TMA units that allow for loading multidimensional tensors with
     (almost) arbitrary strides, which can be used to represent a permuted view of the data.
 
     In this example we reuse the permutation classes of examples 39_gemm_permute as operation tags.
@@ -108,6 +108,8 @@
 
 namespace example
 {
+
+#if defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
 
 struct Options {
 
@@ -197,14 +199,14 @@ template<class ... Shapes>
 auto
 select_mode_shape(Shapes const & ... shapes) {
   auto permuted_shapes = filter_tuple(cute::make_tuple(shapes...), [](auto shape) {
-    if constexpr (rank(shape) > 1) {
+    if constexpr (cute::rank(shape) > 1) {
       return cute::make_tuple(shape);
     }
     else {
       return cute::make_tuple();
     }
   });
-  if constexpr (rank(permuted_shapes) == 0) {
+  if constexpr (cute::rank(permuted_shapes) == 0) {
     return get<0>(cute::make_tuple(shapes...));
   }
   else {
@@ -251,7 +253,7 @@ auto
 select_tile_shape(TileSize size, Shape const& shape)
 {
   static_assert(is_static<TileSize>::value, "Tile size must be static");
-  if constexpr (rank(Shape{}) == 0) {
+  if constexpr (cute::rank(Shape{}) == 0) {
     return cute::make_tuple(size);
   }
   else {
@@ -391,7 +393,8 @@ private:
     ElementB, StrideB, 128 / cutlass::sizeof_bits<ElementB>::value,
     ElementAccumulator,
     TileShape, ClusterShape,
-    cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpilogue::SharedStorage)>,
+    cutlass::gemm::collective::StageCountAutoCarveout<
+      static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
     cutlass::gemm::collective::KernelScheduleAuto
   >::CollectiveOp;
 
@@ -401,7 +404,8 @@ private:
     ElementB, StrideBPermute, 128 / cutlass::sizeof_bits<ElementB>::value,
     ElementAccumulator,
     TileShapePermute, ClusterShape,
-    cutlass::gemm::collective::StageCountAutoCarveout<sizeof(typename CollectiveEpiloguePermute::SharedStorage)>,
+    cutlass::gemm::collective::StageCountAutoCarveout<
+      static_cast<int>(sizeof(typename CollectiveEpiloguePermute::SharedStorage))>,
     cutlass::gemm::collective::KernelScheduleAuto
   >::CollectiveOp;
 
@@ -724,6 +728,7 @@ private:
     return true;
   }
 };
+#endif // defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
 
 } // namespace example
 
@@ -745,11 +750,17 @@ int main(int argc, char const **argv)
     std::cerr << "This example requires a device with compute capability 90 or higher.\n";
     notSupported = true;
   }
+  
+  else if (props.major != 9 || props.minor != 0) {
+    std::cerr << "This example requires a GPU of NVIDIA's Hopper Architecture (compute capability 90).\n";
+    notSupported = true;
+  }
+  
 
   if (notSupported) {
     return EXIT_SUCCESS; // Do not fail CI checks on unsupported systems
   }
-
+#if defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
   example::Options options;
   options.parse(argc, argv);
 
@@ -970,6 +981,6 @@ int main(int argc, char const **argv)
     result &= runner.run(options);
   }
 #endif
-
   return result ? EXIT_SUCCESS : EXIT_FAILURE;
+#endif // defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
 }
